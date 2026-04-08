@@ -12,7 +12,7 @@ st.markdown(
     """
 )
 
-input = st.fileuploader("Upload YOUR physiological signals here! (.csv)", type = "csv" )
+input = st.file_uploader("Upload YOUR physiological signals here! (.csv)", type = "csv" )
 
 if input:
     #df = pd.read_csv(input)
