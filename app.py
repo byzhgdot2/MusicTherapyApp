@@ -1,4 +1,4 @@
-from integrated import EmotionPredictor
+from integrated import dummy_data
 import streamlit as st
 import pandas as pd
 
