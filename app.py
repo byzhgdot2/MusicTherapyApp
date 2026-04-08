@@ -1,17 +1,6 @@
 from intshort import dummy_data
 import streamlit as st
 
-#integrated imports
-import os
-import pandas as pd
-import numpy as np
-import neurokit2 as nk
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.multioutput import MultiOutputRegressor
-from typing import Optional, Dict
-import warnings
-warnings.filterwarnings('ignore')
-
 st.title("Emotion Based Music Recommender!")
 st.markdown(
     """ 
