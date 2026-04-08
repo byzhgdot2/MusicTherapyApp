@@ -1,4 +1,4 @@
-from integrated import dummy_data
+from intshort import dummy_data
 import streamlit as st
 
 #integrated imports
