@@ -1,23 +1,17 @@
 import streamlit as st
-import pandas as pd
 
-st.title("Emotion-Based Music Recommender")
+st.title("Hello Streamlit-er 👋")
+st.markdown(
+    """ 
+    This is a playground for you to try Streamlit and have fun. 
 
-uploaded = st.file_uploader("Upload physiological signals (.csv)", type="csv")
+    **There's :rainbow[so much] you can build!**
+    
+    We prepared a few examples for you to get started. Just 
+    click on the buttons above and discover what you can do 
+    with Streamlit. 
+    """
+)
 
-if uploaded:
-    df = pd.read_csv(uploaded)
-    
-    with st.spinner("Predicting emotional state..."):
-        valence, arousal = predict_emotion(df)  # your existing function
-    
-    st.metric("Predicted Valence", round(valence, 3))
-    st.metric("Predicted Arousal", round(arousal, 3))
-    
-    st.subheader("Set your target emotion")
-    target_v = st.slider("Target Valence", -1.0, 1.0, 0.0)
-    target_a = st.slider("Target Arousal", -1.0, 1.0, 0.0)
-    
-    if st.button("Get Playlist"):
-        playlist = recommend(valence, arousal, target_v, target_a)  # your existing function
-        st.dataframe(playlist)
+if st.button("Send balloons!"):
+    st.balloons()
