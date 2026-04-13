@@ -2,7 +2,8 @@ import streamlit as st
 import pandas as pd
 import time
 
-st.title("Emotion Based Music Recommender!")
+st.metric(label="", value="EMOTION BASED MUSIC RECOMMENDER", delta="12%", border=True)
+
 st.markdown(
     """
     **Abstract**
@@ -21,7 +22,6 @@ add_selectbox = st.sidebar.selectbox(
     ("Email", "Home phone", "Mobile phone")
 )
 
-st.metric(label="Total Users", value="1,234", delta="12%", border=True)
 
 
 uploaded = st.file_uploader("Upload YOUR physiological signals here! (.csv)", type="csv")
