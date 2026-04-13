@@ -1,4 +1,4 @@
-import streamlit as st
+oimport streamlit as st
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -8,7 +8,7 @@ import os
 
 # ── page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="EmotionBeats",
+    page_title="Emotion Based Music Recommender",
     page_icon="🎵",
     layout="wide",
     initial_sidebar_state="expanded",
