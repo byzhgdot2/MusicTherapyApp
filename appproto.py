@@ -21,6 +21,8 @@ add_selectbox = st.sidebar.selectbox(
     ("Email", "Home phone", "Mobile phone")
 )
 
+st.metric(label="Total Users", value="1,234", delta="12%", border=True)
+
 
 uploaded = st.file_uploader("Upload YOUR physiological signals here! (.csv)", type="csv")
 
