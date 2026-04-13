@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import time
 
-st.metric( value="EMOTION BASED MUSIC RECOMMENDER", border=True)
+st.metric(label= "", value="EMOTION BASED MUSIC RECOMMENDER", delta = "" = border=True)
 
 st.markdown(
     """
