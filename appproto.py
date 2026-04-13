@@ -15,7 +15,7 @@ st.markdown(
     """
 )
 
-st.sidebar.[BOOM]
+st.sidebar.["BOOM"]
 
 uploaded = st.file_uploader("Upload YOUR physiological signals here! (.csv)", type="csv")
 
