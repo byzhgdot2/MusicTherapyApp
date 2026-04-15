@@ -255,12 +255,12 @@ with st.sidebar:
     st.divider()
     st.markdown("**CASE Dataset** *(for training)*")
     st.caption("Upload all `sub_N.csv` files from both folders.")
-    physio_files = st.file_uploader("Physiological CSVs", type=["csv"],
-                                     accept_multiple_files=True, label_visibility="collapsed",
-                                     key="physio_upload")
     annot_files  = st.file_uploader("Annotated CSVs", type=["csv"],
-                                     accept_multiple_files=True, label_visibility="collapsed",
+                                     accept_multiple_files=True,
                                      key="annot_upload")
+    physio_files = st.file_uploader("Physiological CSVs", type=["csv"],
+                                     accept_multiple_files=True,
+                                     key="physio_upload")
 
     if st.button("🚀 Initialize & Train", use_container_width=True, type="primary"):
         if not music_db_file:
@@ -486,13 +486,16 @@ with tab_demo:
             genre_d = st.selectbox("Genre", genre_opts_d, key="demo_genre")
             genre_d = None if genre_d == "(any)" else genre_d
 
-            # manual V-A override for demo (since model may not be trained)
-            st.markdown("**Override Current Emotion** *(if model not trained)*")
-            ov_col1, ov_col2 = st.columns(2)
-            with ov_col1:
-                demo_curr_v = st.slider("Current Valence", -1.0, 1.0, -0.4, 0.05, key="dcv")
-            with ov_col2:
-                demo_curr_a = st.slider("Current Arousal", -1.0, 1.0, 0.3, 0.05, key="dca")
+            override = st.toggle("Override current emotion", value=False,
+                                  help="Manually set V-A coordinates instead of using the model's prediction.")
+            if override:
+                ov_col1, ov_col2 = st.columns(2)
+                with ov_col1:
+                    demo_curr_v = st.slider("Current Valence", -1.0, 1.0, -0.4, 0.05, key="dcv")
+                with ov_col2:
+                    demo_curr_a = st.slider("Current Arousal", -1.0, 1.0, 0.3, 0.05, key="dca")
+            else:
+                demo_curr_v, demo_curr_a = -0.4, 0.3  # defaults, will be overwritten by model if trained
 
             st.markdown("**Target Emotion**")
             tv_col1, tv_col2 = st.columns(2)
@@ -501,16 +504,20 @@ with tab_demo:
             with tv_col2:
                 demo_tgt_a = st.slider("Target Arousal", -1.0, 1.0, -0.5, 0.05, key="dta")
 
-            cq, cd = st.session_state.system.recommender.get_emotion_label(demo_curr_v, demo_curr_a)
-            tq, td = st.session_state.system.recommender.get_emotion_label(demo_tgt_v, demo_tgt_a)
-            st.markdown(f"From: {emotion_badge(cd, cq)} &nbsp; → &nbsp; To: {emotion_badge(td, tq)}", unsafe_allow_html=True)
+            if override:
+                cq, cd = st.session_state.system.recommender.get_emotion_label(demo_curr_v, demo_curr_a)
+                tq, td = st.session_state.system.recommender.get_emotion_label(demo_tgt_v, demo_tgt_a)
+                st.markdown(f"From: {emotion_badge(cd, cq)} &nbsp; → &nbsp; To: {emotion_badge(td, tq)}", unsafe_allow_html=True)
+            else:
+                tq, td = st.session_state.system.recommender.get_emotion_label(demo_tgt_v, demo_tgt_a)
+                st.markdown(f"Target: {emotion_badge(td, tq)}", unsafe_allow_html=True)
 
             demo_len = st.slider("Playlist length", 3, 10, 5, key="demo_len")
 
         if st.button("🎲 Run Demo", type="primary", use_container_width=True):
             with st.spinner("Running demo pipeline…"):
                 try:
-                    use_model = st.session_state.trained and "demo_ecg" in st.session_state
+                    use_model = (not override) and st.session_state.trained and "demo_ecg" in st.session_state
 
                     if use_model:
                         ecg_d = st.session_state["demo_ecg"]
