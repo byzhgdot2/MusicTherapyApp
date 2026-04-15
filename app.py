@@ -8,7 +8,7 @@ import os
 
 # ── page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Emotion Based Music Recommender",
+    page_title="EmotionBeats",
     page_icon="🎵",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -137,10 +137,6 @@ for k, v in {
     "trained": False,
     "result": None,
     "demo_result": None,
-    "mode": "upload",          # "upload" | "demo"
-    "physio_dir": "",
-    "annot_dir": "",
-    "music_db": "",
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -253,54 +249,66 @@ with st.sidebar:
     st.markdown("### ⚙️ Setup")
 
     st.markdown("**Music Database (MuSe CSV)**")
-    music_db = st.text_input("Path to muse_dataset.csv", value=st.session_state.music_db,
-                              placeholder="/path/to/muse_dataset.csv", label_visibility="collapsed")
-    st.session_state.music_db = music_db
+    music_db_file = st.file_uploader("Upload muse_dataset.csv", type=["csv"],
+                                      label_visibility="collapsed", key="music_db_upload")
 
     st.divider()
-    st.markdown("**CASE Dataset Paths** *(for training)*")
-    physio_dir = st.text_input("Physiological dir", value=st.session_state.physio_dir,
-                                placeholder="/path/to/Physiological", label_visibility="collapsed")
-    annot_dir  = st.text_input("Annotated dir", value=st.session_state.annot_dir,
-                                placeholder="/path/to/Annotated", label_visibility="collapsed")
-    st.session_state.physio_dir = physio_dir
-    st.session_state.annot_dir  = annot_dir
+    st.markdown("**CASE Dataset** *(for training)*")
+    st.caption("Upload all `sub_N.csv` files from both folders.")
+    physio_files = st.file_uploader("Physiological CSVs", type=["csv"],
+                                     accept_multiple_files=True, label_visibility="collapsed",
+                                     key="physio_upload")
+    annot_files  = st.file_uploader("Annotated CSVs", type=["csv"],
+                                     accept_multiple_files=True, label_visibility="collapsed",
+                                     key="annot_upload")
 
     if st.button("🚀 Initialize & Train", use_container_width=True, type="primary"):
-        if not music_db:
-            st.error("Music database path required.")
-        elif not os.path.exists(music_db):
-            st.error("Music database file not found.")
+        if not music_db_file:
+            st.error("Upload muse_dataset.csv first.")
         else:
             with st.spinner("Loading music database…"):
                 try:
-                    system = pl.EmotionMusicSystem(music_db)
+                    import tempfile, shutil
+                    # Write music DB to a temp file so pipeline can read it
+                    tmp_dir = tempfile.mkdtemp()
+                    music_tmp = os.path.join(tmp_dir, "muse_dataset.csv")
+                    with open(music_tmp, "wb") as f:
+                        f.write(music_db_file.getvalue())
+                    system = pl.EmotionMusicSystem(music_tmp)
                     st.session_state.system = system
                 except Exception as e:
                     st.error(f"Failed to load music DB: {e}")
                     st.stop()
 
-            if physio_dir and annot_dir:
-                if not os.path.isdir(physio_dir):
-                    st.error("Physiological directory not found.")
-                elif not os.path.isdir(annot_dir):
-                    st.error("Annotated directory not found.")
-                else:
-                    prog = st.progress(0, text="Training model…")
-                    try:
-                        n = st.session_state.system.train_model(
-                            physio_dir, annot_dir,
-                            progress_cb=lambda p: prog.progress(p, text=f"Training… {int(p*100)}%")
-                        )
-                        prog.empty()
-                        st.session_state.trained = True
-                        st.success(f"✓ Trained on {n} subjects")
-                    except Exception as e:
-                        prog.empty()
-                        st.error(f"Training error: {e}")
+            if physio_files and annot_files:
+                # Write uploaded subject files to temp dirs
+                prog = st.progress(0, text="Saving uploaded files…")
+                try:
+                    physio_tmp = os.path.join(tmp_dir, "Physiological")
+                    annot_tmp  = os.path.join(tmp_dir, "Annotated")
+                    os.makedirs(physio_tmp, exist_ok=True)
+                    os.makedirs(annot_tmp,  exist_ok=True)
+
+                    for f in physio_files:
+                        with open(os.path.join(physio_tmp, f.name), "wb") as out:
+                            out.write(f.getvalue())
+                    for f in annot_files:
+                        with open(os.path.join(annot_tmp, f.name), "wb") as out:
+                            out.write(f.getvalue())
+
+                    n = st.session_state.system.train_model(
+                        physio_tmp, annot_tmp,
+                        progress_cb=lambda p: prog.progress(p, text=f"Training… {int(p*100)}%")
+                    )
+                    prog.empty()
+                    st.session_state.trained = True
+                    st.success(f"✓ Trained on {n} subjects")
+                except Exception as e:
+                    prog.empty()
+                    st.error(f"Training error: {e}")
             else:
                 st.session_state.trained = False
-                st.info("Music DB loaded. Add CASE paths to enable full pipeline.")
+                st.info("Music DB loaded. Upload CASE files to enable full pipeline.")
 
     st.divider()
 
