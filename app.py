@@ -381,8 +381,22 @@ with tab_upload:
                 target_a = st.slider("Target Arousal", -1.0, 1.0, -0.5, 0.05,
                                       help="−1 = very calm, +1 = very energetic")
 
-            quad, desc = st.session_state.system.recommender.get_emotion_label(target_v, target_a)
-            st.markdown(f"Target: {emotion_badge(desc, quad)}", unsafe_allow_html=True)
+            tq, td = st.session_state.system.recommender.get_emotion_label(target_v, target_a)
+            st.markdown(f"Target: {emotion_badge(td, tq)}", unsafe_allow_html=True)
+
+            st.markdown("**Override Detected Emotion**")
+            upload_override = st.toggle("Set current emotion manually", value=False, key="upload_override",
+                                         help="By default the model predicts your current emotion from the signal. Enable this to set it yourself.")
+            if upload_override:
+                uo_col1, uo_col2 = st.columns(2)
+                with uo_col1:
+                    override_v = st.slider("Current Valence", -1.0, 1.0, 0.0, 0.05, key="uov")
+                with uo_col2:
+                    override_a = st.slider("Current Arousal", -1.0, 1.0, 0.0, 0.05, key="uoa")
+                oq, od = st.session_state.system.recommender.get_emotion_label(override_v, override_a)
+                st.markdown(f"From: {emotion_badge(od, oq)}", unsafe_allow_html=True)
+            else:
+                override_v, override_a = None, None
 
             playlist_len = st.slider("Playlist length", 3, 10, 5)
             gradual      = st.checkbox("Gradual transition", value=True,
@@ -390,24 +404,26 @@ with tab_upload:
 
         if df is not None:
             if st.button("🔮 Predict & Recommend", type="primary", use_container_width=True):
-                if not st.session_state.trained:
-                    st.warning("Model not trained — run with CASE paths in sidebar for full pipeline.")
+                if not st.session_state.trained and not upload_override:
+                    st.warning("Model not trained — either upload CASE data in the sidebar or enable the emotion override.")
                     st.stop()
                 with st.spinner("Extracting features & predicting emotion…"):
                     try:
                         ecg = df["ecg"].values
                         gsr = df["gsr"].values
-                        result = st.session_state.system.process_and_recommend(
-                            ecg, gsr, target_v, target_a,
-                            genre=genre, subject_id=int(subject_id)
-                        )
-                        # override playlist length
+                        if upload_override:
+                            curr_v, curr_a = override_v, override_a
+                            feats = {}
+                        else:
+                            curr_v, curr_a, feats = st.session_state.system.predictor.predict_emotion(
+                                ecg, gsr, int(subject_id)
+                            )
                         result2 = st.session_state.system.recommender.recommend_playlist(
-                            result["current_emotion"]["valence"], result["current_emotion"]["arousal"],
+                            curr_v, curr_a,
                             target_v, target_a, genre=genre,
                             playlist_length=playlist_len, gradual=gradual
                         )
-                        result2["extracted_features"] = result.get("extracted_features", {})
+                        result2["extracted_features"] = feats
                         st.session_state.result = result2
                     except Exception as e:
                         st.error(f"Error: {e}")
@@ -441,7 +457,7 @@ with tab_upload:
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab_demo:
     st.markdown("### Demo Mode")
-    st.caption("Uses synthetic ECG/EDA signals to demonstrate the full pipeline without real data.")
+    st.caption("Set your current and target emotions, pick a genre, and get a playlist.")
 
     if not st.session_state.system:
         st.info("👈 At minimum, provide the **Music Database** path in the sidebar and click Initialize.")
@@ -449,94 +465,43 @@ with tab_demo:
         d_col1, d_col2 = st.columns([1, 1], gap="large")
 
         with d_col1:
-            st.markdown("**Synthetic Signal Preview**")
-
-            n_sec = st.slider("Signal duration (seconds)", 5, 30, 10)
-            noise = st.slider("Noise level", 0.0, 0.5, 0.1, 0.05)
-
-            if st.button("Generate & Preview", use_container_width=True):
-                t = np.linspace(0, n_sec, n_sec * 1000)
-                ecg_demo = np.sin(2 * np.pi * 1.2 * t) + np.random.normal(0, noise, len(t))
-                eda_demo = 2 + 0.5 * np.sin(2 * np.pi * 0.05 * t) + np.random.normal(0, noise * 0.5, len(t))
-                st.session_state["demo_ecg"] = ecg_demo
-                st.session_state["demo_eda"] = eda_demo
-
-            if "demo_ecg" in st.session_state:
-                ecg_demo = st.session_state["demo_ecg"]
-                eda_demo = st.session_state["demo_eda"]
-                t = np.linspace(0, len(ecg_demo)/1000, len(ecg_demo))
-
-                fig2, axes = plt.subplots(2, 1, figsize=(5, 3), facecolor="#16161f")
-                for ax, sig, label, color in zip(axes, [ecg_demo, eda_demo], ["ECG", "EDA"], ["#6c8fff", "#5adb5a"]):
-                    ax.set_facecolor("#16161f")
-                    ax.plot(t[:3000], sig[:3000], color=color, lw=.7)
-                    ax.set_ylabel(label, color="#606880", fontsize=8)
-                    ax.tick_params(colors="#505060", labelsize=6)
-                    for s in ax.spines.values():
-                        s.set_color("#2a2a38")
-                axes[1].set_xlabel("Time (s)", color="#606880", fontsize=8)
-                plt.tight_layout(pad=.5)
-                st.pyplot(fig2, use_container_width=True)
+            st.markdown("**Current Emotion**")
+            dc_col1, dc_col2 = st.columns(2)
+            with dc_col1:
+                demo_curr_v = st.slider("Current Valence", -1.0, 1.0, -0.4, 0.05, key="dcv")
+            with dc_col2:
+                demo_curr_a = st.slider("Current Arousal", -1.0, 1.0, 0.3, 0.05, key="dca")
+            cq, cd = st.session_state.system.recommender.get_emotion_label(demo_curr_v, demo_curr_a)
+            st.markdown(emotion_badge(cd, cq), unsafe_allow_html=True)
 
         with d_col2:
-            st.markdown("**Demo Configuration**")
-
+            st.markdown("**Target Emotion**")
             genres_d = st.session_state.system.recommender.get_genres() if st.session_state.system else []
             genre_opts_d = ["(any)"] + genres_d
             genre_d = st.selectbox("Genre", genre_opts_d, key="demo_genre")
             genre_d = None if genre_d == "(any)" else genre_d
 
-            override = st.toggle("Override current emotion", value=False,
-                                  help="Manually set V-A coordinates instead of using the model's prediction.")
-            if override:
-                ov_col1, ov_col2 = st.columns(2)
-                with ov_col1:
-                    demo_curr_v = st.slider("Current Valence", -1.0, 1.0, -0.4, 0.05, key="dcv")
-                with ov_col2:
-                    demo_curr_a = st.slider("Current Arousal", -1.0, 1.0, 0.3, 0.05, key="dca")
-            else:
-                demo_curr_v, demo_curr_a = -0.4, 0.3  # defaults, will be overwritten by model if trained
-
-            st.markdown("**Target Emotion**")
             tv_col1, tv_col2 = st.columns(2)
             with tv_col1:
                 demo_tgt_v = st.slider("Target Valence", -1.0, 1.0, 0.6, 0.05, key="dtv")
             with tv_col2:
                 demo_tgt_a = st.slider("Target Arousal", -1.0, 1.0, -0.5, 0.05, key="dta")
-
-            if override:
-                cq, cd = st.session_state.system.recommender.get_emotion_label(demo_curr_v, demo_curr_a)
-                tq, td = st.session_state.system.recommender.get_emotion_label(demo_tgt_v, demo_tgt_a)
-                st.markdown(f"From: {emotion_badge(cd, cq)} &nbsp; → &nbsp; To: {emotion_badge(td, tq)}", unsafe_allow_html=True)
-            else:
-                tq, td = st.session_state.system.recommender.get_emotion_label(demo_tgt_v, demo_tgt_a)
-                st.markdown(f"Target: {emotion_badge(td, tq)}", unsafe_allow_html=True)
+            tq, td = st.session_state.system.recommender.get_emotion_label(demo_tgt_v, demo_tgt_a)
+            st.markdown(emotion_badge(td, tq), unsafe_allow_html=True)
 
             demo_len = st.slider("Playlist length", 3, 10, 5, key="demo_len")
 
         if st.button("🎲 Run Demo", type="primary", use_container_width=True):
-            with st.spinner("Running demo pipeline…"):
+            with st.spinner("Building playlist…"):
                 try:
-                    use_model = (not override) and st.session_state.trained and "demo_ecg" in st.session_state
-
-                    if use_model:
-                        ecg_d = st.session_state["demo_ecg"]
-                        eda_d = st.session_state["demo_eda"]
-                        valence_used, arousal_used, feats = st.session_state.system.predictor.predict_emotion(ecg_d, eda_d)
-                    else:
-                        valence_used = demo_curr_v
-                        arousal_used = demo_curr_a
-                        feats = {}
-
                     demo_result = st.session_state.system.recommender.recommend_playlist(
-                        valence_used, arousal_used,
+                        demo_curr_v, demo_curr_a,
                         demo_tgt_v, demo_tgt_a,
                         genre=genre_d,
                         playlist_length=demo_len,
                         gradual=True
                     )
-                    demo_result["extracted_features"] = feats
-                    demo_result["model_used"] = use_model
+                    demo_result["extracted_features"] = {}
                     st.session_state.demo_result = demo_result
                 except Exception as e:
                     st.error(f"Demo error: {e}")
@@ -544,11 +509,6 @@ with tab_demo:
         if st.session_state.demo_result:
             dr = st.session_state.demo_result
             st.divider()
-
-            if dr.get("model_used"):
-                st.success("✓ Used trained emotion model on synthetic signals")
-            else:
-                st.info("ℹ️ Used manual V-A override (model not trained or no signal generated)")
 
             dr_col1, dr_col2 = st.columns([1.1, 1], gap="large")
 
@@ -562,10 +522,6 @@ with tab_demo:
                     dr.get("playlist", [])
                 )
                 st.pyplot(fig3, use_container_width=False)
-
-                if dr.get("extracted_features"):
-                    with st.expander("Extracted Features"):
-                        render_features(dr["extracted_features"])
 
             with dr_col2:
                 render_playlist(dr)
