@@ -6,7 +6,6 @@ import matplotlib.patches as mpatches
 import io
 import os
 
-# ── page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="EmotionBeats",
     page_icon="🎵",
@@ -14,7 +13,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── CSS ───────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
@@ -24,7 +22,6 @@ st.markdown("""
     .main { background: #0f0f13; }
     .block-container { padding: 2rem 2rem 4rem; max-width: 1200px; }
 
-    /* hero */
     .hero {
         background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
         border-radius: 16px;
@@ -36,7 +33,6 @@ st.markdown("""
     .hero p  { font-size: 1.05rem; color: #9aa3b0; margin: 0; }
     .accent  { color: #6c8fff; }
 
-    /* cards */
     .card {
         background: #16161f;
         border: 1px solid #2a2a38;
@@ -46,7 +42,6 @@ st.markdown("""
     }
     .card-title { font-size: 1rem; font-weight: 600; color: #c8cfe0; margin-bottom: 1rem; letter-spacing: .03em; text-transform: uppercase; }
 
-    /* emotion badge */
     .emotion-badge {
         display: inline-block;
         padding: .35rem .9rem;
@@ -60,7 +55,6 @@ st.markdown("""
     .q3 { background: #1a1a3a; color: #5a7adb; border: 1px solid #2d3a6b; }
     .q4 { background: #2a2a1a; color: #c8db5a; border: 1px solid #5a5a2d; }
 
-    /* song card */
     .song-card {
         background: #1c1c28;
         border: 1px solid #2e2e40;
@@ -86,13 +80,11 @@ st.markdown("""
         white-space: nowrap;
     }
 
-    /* feature grid */
     .feat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; }
     .feat-item { background: #1c1c28; border-radius: 8px; padding: .6rem .8rem; }
     .feat-name  { font-size: .72rem; color: #606880; text-transform: uppercase; letter-spacing: .05em; }
     .feat-value { font-size: 1rem; font-weight: 600; color: #c8cfe0; margin-top: .15rem; }
 
-    /* step bar */
     .step-bar { display: flex; align-items: center; gap: .5rem; margin-bottom: 1.5rem; }
     .step { display: flex; align-items: center; gap: .4rem; font-size: .85rem; color: #606880; }
     .step.active { color: #6c8fff; font-weight: 600; }
@@ -100,30 +92,17 @@ st.markdown("""
     .step-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
     .step-line { flex: 1; height: 1px; background: #2a2a38; }
 
-    /* status */
     .status-ok   { color: #5adb5a; font-size: .85rem; }
     .status-warn { color: #f0a030; font-size: .85rem; }
     .status-err  { color: #db5a5a; font-size: .85rem; }
 
-    /* sidebar */
     section[data-testid="stSidebar"] { background: #0d0d16 !important; border-right: 1px solid #1e1e2e; }
     section[data-testid="stSidebar"] .block-container { padding: 1rem; }
 
-    /* hide streamlit branding */
     #MainMenu, footer { visibility: hidden; }
     header { visibility: hidden; }
 </style>
 """, unsafe_allow_html=True)
-
-# ── lazy import pipeline ───────────────────────────────────────────────────────
-@st.cache_resource
-def load_pipeline_module():
-    import importlib.util, sys
-    spec = importlib.util.spec_from_file_location("pipeline", os.path.join(os.path.dirname(__file__), "pipeline.py"))
-    mod = importlib.util.load_from_spec(spec) if hasattr(importlib.util, 'load_from_spec') else None
-    # fallback: just import normally
-    import pipeline as p
-    return p
 
 try:
     import pipeline as pl
@@ -131,7 +110,6 @@ except ModuleNotFoundError:
     st.error("pipeline.py not found alongside app.py.")
     st.stop()
 
-# ── session state defaults ────────────────────────────────────────────────────
 for k, v in {
     "system": None,
     "trained": False,
@@ -141,7 +119,6 @@ for k, v in {
     if k not in st.session_state:
         st.session_state[k] = v
 
-# ── helpers ───────────────────────────────────────────────────────────────────
 QUAD_CLASS = {"Q1": "q1", "Q2": "q2", "Q3": "q3", "Q4": "q4"}
 QUAD_EMOJI = {"Q1": "😄", "Q2": "😠", "Q3": "😢", "Q4": "😌"}
 
@@ -150,11 +127,17 @@ def emotion_badge(desc, quad):
     emoji = QUAD_EMOJI.get(quad, "🎵")
     return f'<span class="emotion-badge {cls}">{emoji} {desc}</span>'
 
+def _get_song_field(song, candidates, fallback="Unknown"):
+    for col in candidates:
+        val = song.get(col, None)
+        if val is not None and str(val).strip() and str(val).strip().lower() != "nan":
+            return str(val).strip()
+    return fallback
+
 def va_scatter(current_v, current_a, target_v, target_a, playlist=None):
     fig, ax = plt.subplots(figsize=(4.5, 4.5), facecolor="#16161f")
     ax.set_facecolor("#16161f")
 
-    # quadrant shading
     for (xmin, xmax, ymin, ymax), color in [
         ((0, 1, 0, 1), "#1a3a1a"), ((-1, 0, 0, 1), "#3a1a1a"),
         ((-1, 0, -1, 0), "#1a1a3a"), ((0, 1, -1, 0), "#2a2a1a"),
@@ -170,7 +153,6 @@ def va_scatter(current_v, current_a, target_v, target_a, playlist=None):
         ax.text(x, y, label, ha='center', va='center', fontsize=7,
                 color="#444455", fontfamily='monospace')
 
-    # gradient path
     if playlist:
         vv = [current_v] + [s.get('valence', 0) if isinstance(s, dict) else s['valence'] for s in playlist] + [target_v]
         aa = [current_a] + [s.get('arousal', 0) if isinstance(s, dict) else s['arousal'] for s in playlist] + [target_a]
@@ -198,20 +180,12 @@ def render_playlist(result):
 
     st.markdown('<div class="card-title">🎵 Your Playlist</div>', unsafe_allow_html=True)
     for i, song in enumerate(playlist, 1):
-        if isinstance(song, dict):
-            title  = song.get('title', 'Unknown')
-            artist = song.get('artist', 'Unknown Artist')
-            genre  = song.get('genre', '—')
-            v      = song.get('valence', 0)
-            a      = song.get('arousal', 0)
-            dist   = song.get('distance', 0)
-        else:  # pandas Series
-            title  = song.get('title', 'Unknown')
-            artist = song.get('artist', 'Unknown Artist')
-            genre  = song.get('genre', '—')
-            v      = float(song.get('valence', 0))
-            a      = float(song.get('arousal', 0))
-            dist   = float(song.get('distance', 0))
+        title  = _get_song_field(song, ['title', 'song_title', 'track', 'name'])
+        artist = _get_song_field(song, ['artist', 'artist_name', 'performer'], fallback='Unknown Artist')
+        genre  = _get_song_field(song, ['genre', 'genre_tags'], fallback='—')
+        v      = float(song.get('valence', 0))
+        a      = float(song.get('arousal', 0))
+        dist   = float(song.get('distance', 0))
 
         st.markdown(f"""
         <div class="song-card">
@@ -268,8 +242,7 @@ with st.sidebar:
         else:
             with st.spinner("Loading music database…"):
                 try:
-                    import tempfile, shutil
-                    # Write music DB to a temp file so pipeline can read it
+                    import tempfile
                     tmp_dir = tempfile.mkdtemp()
                     music_tmp = os.path.join(tmp_dir, "muse_dataset.csv")
                     with open(music_tmp, "wb") as f:
@@ -281,7 +254,6 @@ with st.sidebar:
                     st.stop()
 
             if physio_files and annot_files:
-                # Write uploaded subject files to temp dirs
                 prog = st.progress(0, text="Saving uploaded files…")
                 try:
                     physio_tmp = os.path.join(tmp_dir, "Physiological")
@@ -312,7 +284,13 @@ with st.sidebar:
 
     st.divider()
 
-    # status
+    if st.button("🔄 Reset", use_container_width=True):
+        for k in ["system", "trained", "result", "demo_result"]:
+            st.session_state[k] = None if k in ["system", "result", "demo_result"] else False
+        st.rerun()
+
+    st.divider()
+
     db_ok      = st.session_state.system is not None
     trained_ok = st.session_state.trained
     st.markdown(f'<div class="{"status-ok" if db_ok else "status-warn"}">{"✓" if db_ok else "○"} Music database</div>', unsafe_allow_html=True)
