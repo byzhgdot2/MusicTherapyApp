@@ -85,7 +85,7 @@ def render_playlist(result):
             v      = song.get('valence', 0)
             a      = song.get('arousal', 0)
             dist   = song.get('distance', 0)
-        else:  # pandas Series
+        else:
             title  = song.get('title', 'Unknown')
             artist = song.get('artist', 'Unknown Artist')
             genre  = song.get('genre', '—')
@@ -196,15 +196,15 @@ with st.sidebar:
 
     st.divider()
     st.markdown("**About**")
-    st.caption("ECG + EDA → Emotion (arousal-valence) → Music recommendations via MuSe dataset.")
+    st.caption("""
+    Music therapy has shown great promise in improving the mental health of many, being able to reduce stress and induce relaxation. Current music therapy requires professional guidance which makes it inaccessible during real-world applications and cannot adapt to a person's emotions out of consultations. Recently, new methods for music therapy have emerged utilizing emotion tracking and artificial intelligence to create recommendations on demand and have shown promising results. However, these new methods require the user to provide additional information to software that takes them out of the listening experience, such as submitting facial photos, talking to chatbots, or speaking into a microphone. This project proposes a solution that utilizes electrical data from a wearable device to determine a person's mood in real time while the user is listening. It will recommend new, dynamic music that will adapt to their current mood, guiding the user to a pre determined mood end goal.
+    
+    
+    This project takes in a 60+ second snippet of user inputted HR (Heart Rate), HRV (Heart Rate Variation), and EDA (Electrodermal Activity). Try it out below!
+    """)
+    
     st.caption("Uses subject-specific normalization with Random Forest Regressor (CASE dataset).")
 
-st.markdown("""
-<div class="hero">
-  <h1>🎵 Emotion<span class="accent">Beats</span></h1>
-  <p>Physiological signal analysis &rarr; emotion prediction &rarr; personalized music recommendations</p>
-</div>
-""", unsafe_allow_html=True)
 
 tab_upload, tab_demo = st.tabs(["📁 Upload Signals", "🎲 Demo Mode"])
 
