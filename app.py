@@ -6,11 +6,117 @@ import matplotlib.patches as mpatches
 import io
 import os
 
+st.set_page_config(
+    page_title="EmotionBeats",
+    page_icon="🎵",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+st.markdown("""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+    html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+
+    .main { background: #0f0f13; }
+    .block-container { padding: 2rem 2rem 4rem; max-width: 1200px; }
+
+    /* hero */
+    .hero {
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+        border-radius: 16px;
+        padding: 2.5rem 3rem;
+        margin-bottom: 2rem;
+        border: 1px solid rgba(100,130,255,0.15);
+    }
+    .hero h1 { font-size: 2.4rem; font-weight: 700; color: #ffffff; margin: 0 0 .5rem; }
+    .hero p  { font-size: 1.05rem; color: #9aa3b0; margin: 0; }
+    .accent  { color: #6c8fff; }
+
+    /* cards */
+    .card {
+        background: #16161f;
+        border: 1px solid #2a2a38;
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 1rem;
+    }
+    .card-title { font-size: 1rem; font-weight: 600; color: #c8cfe0; margin-bottom: 1rem; letter-spacing: .03em; text-transform: uppercase; }
+
+    /* emotion badge */
+    .emotion-badge {
+        display: inline-block;
+        padding: .35rem .9rem;
+        border-radius: 20px;
+        font-size: .85rem;
+        font-weight: 600;
+        letter-spacing: .04em;
+    }
+    .q1 { background: #1a3a1a; color: #5adb5a; border: 1px solid #2d6b2d; }
+    .q2 { background: #3a1a1a; color: #db5a5a; border: 1px solid #6b2d2d; }
+    .q3 { background: #1a1a3a; color: #5a7adb; border: 1px solid #2d3a6b; }
+    .q4 { background: #2a2a1a; color: #c8db5a; border: 1px solid #5a5a2d; }
+
+    /* song card */
+    .song-card {
+        background: #1c1c28;
+        border: 1px solid #2e2e40;
+        border-radius: 10px;
+        padding: 1rem 1.2rem;
+        margin-bottom: .6rem;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+    .song-num { font-size: 1.3rem; font-weight: 700; color: #6c8fff; min-width: 28px; }
+    .song-info { flex: 1; }
+    .song-title  { font-weight: 600; color: #e8ecf5; font-size: .97rem; }
+    .song-artist { color: #7a859a; font-size: .85rem; margin-top: .15rem; }
+    .song-meta   { font-size: .78rem; color: #555d6e; margin-top: .3rem; }
+    .match-pill  {
+        background: #1a2540;
+        color: #6c8fff;
+        padding: .2rem .6rem;
+        border-radius: 10px;
+        font-size: .75rem;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    /* feature grid */
+    .feat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; }
+    .feat-item { background: #1c1c28; border-radius: 8px; padding: .6rem .8rem; }
+    .feat-name  { font-size: .72rem; color: #606880; text-transform: uppercase; letter-spacing: .05em; }
+    .feat-value { font-size: 1rem; font-weight: 600; color: #c8cfe0; margin-top: .15rem; }
+
+    /* step bar */
+    .step-bar { display: flex; align-items: center; gap: .5rem; margin-bottom: 1.5rem; }
+    .step { display: flex; align-items: center; gap: .4rem; font-size: .85rem; color: #606880; }
+    .step.active { color: #6c8fff; font-weight: 600; }
+    .step.done   { color: #3d8f4f; }
+    .step-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+    .step-line { flex: 1; height: 1px; background: #2a2a38; }
+
+    /* status */
+    .status-ok   { color: #5adb5a; font-size: .85rem; }
+    .status-warn { color: #f0a030; font-size: .85rem; }
+    .status-err  { color: #db5a5a; font-size: .85rem; }
+
+    /* sidebar */
+    section[data-testid="stSidebar"] { background: #0d0d16 !important; border-right: 1px solid #1e1e2e; }
+    section[data-testid="stSidebar"] .block-container { padding: 1rem; }
+
+    /* hide streamlit branding */
+    header { visibility: hidden; }
+</style>
+""", unsafe_allow_html=True)
+
 
 try:
     import pipeline as pl
 except ModuleNotFoundError:
-    st.error("pipeline.py not found")
+    st.error("pipeline.py not found alongside app.py.")
     st.stop()
 
 for k, v in {
@@ -30,7 +136,6 @@ def emotion_badge(desc, quad):
     emoji = QUAD_EMOJI.get(quad, "🎵")
     return f'<span class="emotion-badge {cls}">{emoji} {desc}</span>'
 
-
 def va_scatter(current_v, current_a, target_v, target_a, playlist=None):
     fig, ax = plt.subplots(figsize=(4.5, 4.5), facecolor="#16161f")
     ax.set_facecolor("#16161f")
@@ -45,7 +150,6 @@ def va_scatter(current_v, current_a, target_v, target_a, playlist=None):
     ax.axhline(0, color="#3a3a50", lw=.8)
     ax.axvline(0, color="#3a3a50", lw=.8)
 
-    
     for label, (x, y) in [("Happy\nExcited", (.5, .5)), ("Angry\nTense", (-.5, .5)),
                             ("Sad\nDepressed", (-.5, -.5)), ("Calm\nRelaxed", (.5, -.5))]:
         ax.text(x, y, label, ha='center', va='center', fontsize=7,
@@ -85,7 +189,7 @@ def render_playlist(result):
             v      = song.get('valence', 0)
             a      = song.get('arousal', 0)
             dist   = song.get('distance', 0)
-        else:
+        else:  # pandas Series
             title  = song.get('title', 'Unknown')
             artist = song.get('artist', 'Unknown Artist')
             genre  = song.get('genre', '—')
@@ -196,15 +300,15 @@ with st.sidebar:
 
     st.divider()
     st.markdown("**About**")
-    st.caption("""
-    Music therapy has shown great promise in improving the mental health of many, being able to reduce stress and induce relaxation. Current music therapy requires professional guidance which makes it inaccessible during real-world applications and cannot adapt to a person's emotions out of consultations. Recently, new methods for music therapy have emerged utilizing emotion tracking and artificial intelligence to create recommendations on demand and have shown promising results. However, these new methods require the user to provide additional information to software that takes them out of the listening experience, such as submitting facial photos, talking to chatbots, or speaking into a microphone. This project proposes a solution that utilizes electrical data from a wearable device to determine a person's mood in real time while the user is listening. It will recommend new, dynamic music that will adapt to their current mood, guiding the user to a pre determined mood end goal.
-    
-    
-    This project takes in a 60+ second snippet of user inputted HR (Heart Rate), HRV (Heart Rate Variation), and EDA (Electrodermal Activity). Try it out below!
-    """)
-    
+    st.caption("ECG + EDA → Emotion (arousal-valence) → Music recommendations via MuSe dataset.")
     st.caption("Uses subject-specific normalization with Random Forest Regressor (CASE dataset).")
 
+st.markdown("""
+<div class="hero">
+  <h1>🎵 Emotion<span class="accent">Beats</span></h1>
+  <p>Physiological signal analysis &rarr; emotion prediction &rarr; personalized music recommendations</p>
+</div>
+""", unsafe_allow_html=True)
 
 tab_upload, tab_demo = st.tabs(["📁 Upload Signals", "🎲 Demo Mode"])
 
@@ -360,7 +464,7 @@ with tab_demo:
             demo_len = st.slider("Playlist length", 3, 10, 5, key="demo_len")
 
         if st.button("🎲 Run Demo", type="primary", use_container_width=True):
-            with st.spinner("Building Your Playlist!!!"):
+            with st.spinner("Building playlist…"):
                 try:
                     demo_result = st.session_state.system.recommender.recommend_playlist(
                         demo_curr_v, demo_curr_a,
