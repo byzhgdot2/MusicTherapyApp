@@ -7,7 +7,7 @@ import io
 import os
 
 st.set_page_config(
-    page_title="EmotionBeats",
+    page_title="Emotion Based Music Recommendation",
     page_icon="🎵",
     layout="wide",
     initial_sidebar_state="expanded",
