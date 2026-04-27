@@ -131,7 +131,7 @@ def render_emotion_summary(result):
         st.markdown(f"<small style='color:#606880'>V={te['valence']:.2f} · A={te['arousal']:.2f}</small>", unsafe_allow_html=True)
 
 with st.sidebar:
-    st.markdown("### ⚙️ Setup")
+    st.markdown("### Setup")
 
     st.markdown("**Music Database (MuSe CSV)**")
     music_db_file = st.file_uploader("Upload muse_dataset.csv", type=["csv"],
@@ -147,7 +147,7 @@ with st.sidebar:
                                      accept_multiple_files=True,
                                      key="physio_upload")
 
-    if st.button("🚀 Initialize & Train", use_container_width=True, type="primary"):
+    if st.button("Initialize & Train", use_container_width=True, type="primary"):
         if not music_db_file:
             st.error("Upload muse_dataset.csv first.")
         else:
@@ -202,21 +202,19 @@ with st.sidebar:
 
     st.divider()
     st.markdown("**About**")
-    st.caption("ECG + EDA → Emotion (arousal-valence) → Music recommendations via MuSe dataset.")
-    st.caption("Uses subject-specific normalization with Random Forest Regressor (CASE dataset).")
+    st.caption("""
+    Music therapy has shown great promise in improving the mental health of many, being able to reduce stress and induce relaxation. Current music therapy requires professional guidance which makes it inaccessible during real-world applications and cannot adapt to a person's emotions out of consultations. Recently, new methods for music therapy have emerged utilizing emotion tracking and artificial intelligence to create recommendations on demand and have shown promising results. However, these new methods require the user to provide additional information to software that takes them out of the listening experience, such as submitting facial photos, talking to chatbots, or speaking into a microphone. This project proposes a solution that utilizes electrical data from a wearable device to determine a person's mood in real time while the user is listening. It will recommend new, dynamic music that will adapt to their current mood, guiding the user to a pre determined mood end goal.
+    
+    
+    This project takes in a 60+ second snippet of user inputted HR (Heart Rate), HRV (Heart Rate Variation), and EDA (Electrodermal Activity). Try it out below!
+    """)
+    
 
-st.markdown("""
-<div class="hero">
-  <h1>🎵 Emotion<span class="accent">Beats</span></h1>
-  <p>Physiological signal analysis &rarr; emotion prediction &rarr; personalized music recommendations</p>
-</div>
-""", unsafe_allow_html=True)
-
-tab_upload, tab_demo = st.tabs(["📁 Upload Signals", "🎲 Demo Mode"])
+tab_upload, tab_demo = st.tabs(["Upload Signals", "Demo Mode"])
 
 with tab_upload:
     if not st.session_state.system:
-        st.info("👈 Configure and initialize the system in the sidebar first.")
+        st.info("Configure and initialize the system in the sidebar first.")
     else:
         st.markdown("### Upload Physiological Data")
         st.caption("CSV with `ecg` and `gsr` columns at 1000 Hz sampling rate.")
@@ -233,7 +231,7 @@ with tab_upload:
             if uploaded:
                 try:
                     df = pd.read_csv(uploaded)
-                    st.success(f"✓ Loaded {len(df):,} samples — columns: {', '.join(df.columns)}")
+                    st.success(f"Loaded {len(df):,} samples — columns: {', '.join(df.columns)}")
                     if 'ecg' not in df.columns or 'gsr' not in df.columns:
                         st.error("CSV must have `ecg` and `gsr` columns.")
                         df = None
@@ -280,7 +278,7 @@ with tab_upload:
                                         help="Interpolate through intermediate emotions")
 
         if df is not None:
-            if st.button("🔮 Predict & Recommend", type="primary", use_container_width=True):
+            if st.button("Predict & Recommend", type="primary", use_container_width=True):
                 if not st.session_state.trained and not manual_mode:
                     st.warning("Model not trained — either upload CASE data in the sidebar or enable the emotion override.")
                     st.stop()
@@ -334,7 +332,7 @@ with tab_demo:
     st.caption("Set your current and target emotions, pick a genre, and get a playlist.")
 
     if not st.session_state.system:
-        st.info("👈 At minimum, provide the **Music Database** path in the sidebar and click Initialize.")
+        st.info("At minimum, provide the **Music Database** path in the sidebar and click Initialize.")
     else:
         d_col1, d_col2 = st.columns([1, 1], gap="large")
 
