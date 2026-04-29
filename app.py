@@ -3,17 +3,14 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-import io
 import os
 
 st.set_page_config(
-    page_title="EmotionBeats",
+    page_title="Emotion Aware Music Reccommender",
     page_icon="🎵",
     layout="wide",
     initial_sidebar_state="expanded",
 )
-
-
 
 try:
     import pipeline as pl
@@ -30,13 +27,11 @@ for k, v in {
     if k not in st.session_state:
         st.session_state[k] = v
 
-QUAD_CLASS = {"Q1": "q1", "Q2": "q2", "Q3": "q3", "Q4": "q4"}
 QUAD_EMOJI = {"Q1": "😄", "Q2": "😠", "Q3": "😢", "Q4": "😌"}
 
-def emotion_badge(desc, quad):
-    cls = QUAD_CLASS.get(quad, "q4")
+def emotion_label_str(desc, quad):
     emoji = QUAD_EMOJI.get(quad, "🎵")
-    return f'<span class="emotion-badge {cls}">{emoji} {desc}</span>'
+    return f"{emoji} {desc}"
 
 def va_scatter(current_v, current_a, target_v, target_a, playlist=None):
     fig, ax = plt.subplots(figsize=(4.5, 4.5), facecolor="#16161f")
@@ -58,13 +53,13 @@ def va_scatter(current_v, current_a, target_v, target_a, playlist=None):
                 color="#444455", fontfamily='monospace')
 
     if playlist:
-        vv = [current_v] + [s.get('valence', 0) if isinstance(s, dict) else s['valence'] for s in playlist] + [target_v]
-        aa = [current_a] + [s.get('arousal', 0) if isinstance(s, dict) else s['arousal'] for s in playlist] + [target_a]
+        vv = [current_v] + [s.get('valence', 0) for s in playlist] + [target_v]
+        aa = [current_a] + [s.get('arousal', 0) for s in playlist] + [target_a]
         for i in range(len(vv) - 1):
             ax.plot([vv[i], vv[i+1]], [aa[i], aa[i+1]], color="#4a5a8f", lw=1, alpha=.5, zorder=1)
 
     ax.scatter([current_v], [current_a], s=120, color="#6c8fff", zorder=5, label="Current", edgecolors="#fff", lw=1)
-    ax.scatter([target_v], [target_a], s=120, color="#5adb5a", zorder=5, label="Target",  edgecolors="#fff", lw=1, marker="*")
+    ax.scatter([target_v], [target_a], s=120, color="#5adb5a", zorder=5, label="Target", edgecolors="#fff", lw=1, marker="*")
 
     for side in ax.spines.values():
         side.set_color("#2a2a38")
@@ -89,7 +84,7 @@ def render_playlist(result):
         st.warning("No songs found. Try a different genre or adjust your target emotion.")
         return
 
-    st.markdown('<div class="card-title">🎵 Your Playlist</div>', unsafe_allow_html=True)
+    st.subheader("Your Playlist")
     for i, song in enumerate(playlist, 1):
         title  = _get_field(song, ['track', 'title', 'name'])
         artist = _get_field(song, ['artist', 'artist_name'], fallback='Unknown Artist')
@@ -98,23 +93,21 @@ def render_playlist(result):
         a      = float(song.get('arousal', 0))
         dist   = float(song.get('distance', 0))
 
-        st.markdown(f"""
-        <div class="song-card">
-            <div class="song-num">{i}</div>
-            <div class="song-info">
-                <div class="song-title">{title}</div>
-                <div class="song-artist">{artist}</div>
-                <div class="song-meta">Genre: {genre} &nbsp;·&nbsp; V={v:.2f}, A={a:.2f}</div>
-            </div>
-            <div class="match-pill">dist {dist:.3f}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        with st.container(border=True):
+            col_num, col_info, col_dist = st.columns([0.08, 0.75, 0.17])
+            with col_num:
+                st.markdown(f"**{i}**")
+            with col_info:
+                st.markdown(f"**{title}**")
+                st.caption(f"{artist}  ·  Genre: {genre}  ·  V={v:.2f}, A={a:.2f}")
+            with col_dist:
+                st.caption(f"dist {dist:.3f}")
 
 def render_features(features: dict):
-    items_html = ""
-    for k, v in features.items():
-        items_html += f'<div class="feat-item"><div class="feat-name">{k}</div><div class="feat-value">{v:.3f}</div></div>'
-    st.markdown(f'<div class="feat-grid">{items_html}</div>', unsafe_allow_html=True)
+    cols = st.columns(4)
+    for idx, (k, v) in enumerate(features.items()):
+        with cols[idx % 4]:
+            st.metric(label=k, value=f"{v:.3f}")
 
 def render_emotion_summary(result):
     ce = result["current_emotion"]
@@ -122,15 +115,16 @@ def render_emotion_summary(result):
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("**Detected Emotion**")
-        st.markdown(emotion_badge(ce["description"], ce["quadrant"]), unsafe_allow_html=True)
-        st.markdown(f"<small style='color:#606880'>V={ce['valence']:.2f} · A={ce['arousal']:.2f}</small>", unsafe_allow_html=True)
+        st.write(emotion_label_str(ce["description"], ce["quadrant"]))
+        st.caption(f"V={ce['valence']:.2f} · A={ce['arousal']:.2f}")
     with c2:
         st.markdown("**Target Emotion**")
-        st.markdown(emotion_badge(te["description"], te["quadrant"]), unsafe_allow_html=True)
-        st.markdown(f"<small style='color:#606880'>V={te['valence']:.2f} · A={te['arousal']:.2f}</small>", unsafe_allow_html=True)
+        st.write(emotion_label_str(te["description"], te["quadrant"]))
+        st.caption(f"V={te['valence']:.2f} · A={te['arousal']:.2f}")
 
+######################### SIDEBAR #########################################
 with st.sidebar:
-    st.markdown("### ⚙️ Setup")
+    st.markdown("### Setup")
 
     st.markdown("**Music Database (MuSe CSV)**")
     music_db_file = st.file_uploader("Upload muse_dataset.csv", type=["csv"],
@@ -152,7 +146,7 @@ with st.sidebar:
         else:
             with st.spinner("Loading music database…"):
                 try:
-                    import tempfile, shutil
+                    import tempfile
                     tmpdir = tempfile.mkdtemp()
                     db_path = os.path.join(tmpdir, "muse_dataset.csv")
                     with open(db_path, "wb") as f:
@@ -167,9 +161,9 @@ with st.sidebar:
                 prog = st.progress(0, text="Saving uploaded files…")
                 try:
                     p_dir = os.path.join(tmpdir, "Physiological")
-                    a_dir  = os.path.join(tmpdir, "Annotated")
+                    a_dir = os.path.join(tmpdir, "Annotated")
                     os.makedirs(p_dir, exist_ok=True)
-                    os.makedirs(a_dir,  exist_ok=True)
+                    os.makedirs(a_dir, exist_ok=True)
 
                     for f in physio_files:
                         with open(os.path.join(p_dir, f.name), "wb") as out:
@@ -194,22 +188,23 @@ with st.sidebar:
 
     st.divider()
 
-    has_db      = st.session_state.system is not None
+    has_db     = st.session_state.system is not None
     is_trained = st.session_state.trained
-    st.markdown(f'<div class="{"status-ok" if has_db else "status-warn"}">{"✓" if has_db else "○"} Music database</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="{"status-ok" if is_trained else "status-warn"}">{"✓" if is_trained else "○"} Emotion model</div>', unsafe_allow_html=True)
+    st.write("✓ Music database" if has_db else "○ Music database (not loaded)")
+    st.write("✓ Emotion model" if is_trained else "○ Emotion model (not trained)")
 
     st.divider()
     st.markdown("**About**")
-    st.caption("ECG + EDA → Emotion (arousal-valence) → Music recommendations via MuSe dataset.")
-    st.caption("Uses subject-specific normalization with Random Forest Regressor (CASE dataset).")
+    st.caption(
+        "Music therapy has shown great promise in improving mental health, reducing stress and inducing relaxation. "
+        "Current music therapy requires professional guidance, making it inaccessible in real-world settings. "
+        "This project uses electrical data from a wearable device to determine a person's mood in real time "
+        "and recommends music that guides the user toward a predetermined mood end goal — no extra input required."
+    )
 
-st.markdown("""
-<div class="hero">
-  <h1>Emotion<span class="accent">Beats</span></h1>
-  <p>Physiological signal analysis &rarr; emotion prediction &rarr; personalized music recommendations</p>
-</div>
-""", unsafe_allow_html=True)
+#======================================MAIN -----------------
+st.title("🎵 Emotion Aware Music Recommendation")
+st.caption("Physiological signal analysis → emotion prediction → personalized music recommendations")
 
 tab_upload, tab_demo = st.tabs(["Upload Signals", "🎲 Demo Mode"])
 
@@ -225,9 +220,11 @@ with tab_upload:
         with left:
             uploaded = st.file_uploader("Upload signal CSV", type=["csv"], label_visibility="collapsed")
 
-            subject_id = st.number_input("Subject ID *(optional — used for subject-specific normalization)*",
-                                          min_value=1, max_value=30, value=1, step=1,
-                                          help="If this subject was in the training set, their baseline is used.")
+            subject_id = st.number_input(
+                "Subject ID *(optional — used for subject-specific normalization)*",
+                min_value=1, max_value=30, value=1, step=1,
+                help="If this subject was in the training set, their baseline is used."
+            )
 
             if uploaded:
                 try:
@@ -244,7 +241,7 @@ with tab_upload:
 
         with right:
             st.markdown("**Target Emotion**")
-            genres = st.session_state.system.recommender.get_genres() if st.session_state.system else []
+            genres = st.session_state.system.recommender.get_genres()
             genre_opts = ["(any)"] + genres
             picked = st.selectbox("Genre", genre_opts)
             genre = None if picked == "(any)" else picked
@@ -258,11 +255,11 @@ with tab_upload:
                                       help="−1 = very calm, +1 = very energetic")
 
             tq, td = st.session_state.system.recommender.get_emotion_label(target_v, target_a)
-            st.markdown(f"Target: {emotion_badge(td, tq)}", unsafe_allow_html=True)
+            st.write(f"Target: {emotion_label_str(td, tq)}")
 
             st.markdown("**Override Detected Emotion**")
             manual_mode = st.toggle("Set current emotion manually", value=False, key="manual_mode",
-                                         help="By default the model predicts your current emotion from the signal. Enable this to set it yourself.")
+                                     help="By default the model predicts your current emotion from the signal.")
             if manual_mode:
                 oc1, oc2 = st.columns(2)
                 with oc1:
@@ -270,7 +267,7 @@ with tab_upload:
                 with oc2:
                     override_a = st.slider("Current Arousal", -1.0, 1.0, 0.0, 0.05, key="uoa")
                 oq, od = st.session_state.system.recommender.get_emotion_label(override_v, override_a)
-                st.markdown(f"From: {emotion_badge(od, oq)}", unsafe_allow_html=True)
+                st.write(f"From: {emotion_label_str(od, oq)}")
             else:
                 override_v, override_a = None, None
 
@@ -311,9 +308,9 @@ with tab_upload:
             res_left, res_right = st.columns([1.1, 1], gap="large")
 
             with res_left:
-                st.markdown('<div class="card-title">Emotion Summary</div>', unsafe_allow_html=True)
+                st.subheader("Emotion Summary")
                 render_emotion_summary(result)
-                st.markdown("---")
+                st.divider()
                 fig = va_scatter(
                     result["current_emotion"]["valence"], result["current_emotion"]["arousal"],
                     result["target_emotion"]["valence"],  result["target_emotion"]["arousal"],
@@ -345,11 +342,11 @@ with tab_demo:
             with cc2:
                 demo_curr_a = st.slider("Current Arousal", -1.0, 1.0, 0.3, 0.05, key="dca")
             cq, cd = st.session_state.system.recommender.get_emotion_label(demo_curr_v, demo_curr_a)
-            st.markdown(emotion_badge(cd, cq), unsafe_allow_html=True)
+            st.write(emotion_label_str(cd, cq))
 
         with d_col2:
             st.markdown("**Target Emotion**")
-            genres_d = st.session_state.system.recommender.get_genres() if st.session_state.system else []
+            genres_d = st.session_state.system.recommender.get_genres()
             genre_opts_d = ["(any)"] + genres_d
             genre_d = st.selectbox("Genre", genre_opts_d, key="demo_genre")
             genre_d = None if genre_d == "(any)" else genre_d
@@ -360,11 +357,11 @@ with tab_demo:
             with tv2:
                 demo_tgt_a = st.slider("Target Arousal", -1.0, 1.0, -0.5, 0.05, key="dta")
             tq, td = st.session_state.system.recommender.get_emotion_label(demo_tgt_v, demo_tgt_a)
-            st.markdown(emotion_badge(td, tq), unsafe_allow_html=True)
+            st.write(emotion_label_str(td, tq))
 
             demo_len = st.slider("Playlist length", 3, 10, 5, key="demo_len")
 
-        if st.button("🎲 Run Demo", type="primary", use_container_width=True):
+        if st.button("Run Demo", type="primary", use_container_width=True):
             with st.spinner("Building playlist…"):
                 try:
                     demo_result = st.session_state.system.recommender.recommend_playlist(
@@ -386,9 +383,9 @@ with tab_demo:
             dl, dr2 = st.columns([1.1, 1], gap="large")
 
             with dl:
-                st.markdown('<div class="card-title">Emotion Summary</div>', unsafe_allow_html=True)
+                st.subheader("Emotion Summary")
                 render_emotion_summary(dr)
-                st.markdown("---")
+                st.divider()
                 fig3 = va_scatter(
                     dr["current_emotion"]["valence"], dr["current_emotion"]["arousal"],
                     dr["target_emotion"]["valence"],  dr["target_emotion"]["arousal"],
