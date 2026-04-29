@@ -7,7 +7,7 @@ import io
 import os
 
 st.set_page_config(
-    page_title="EmotionBeats",
+    page_title="EAMR",
     page_icon="🎵",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -130,7 +130,7 @@ def render_emotion_summary(result):
         st.markdown(f"<small style='color:#606880'>V={te['valence']:.2f} · A={te['arousal']:.2f}</small>", unsafe_allow_html=True)
 
 with st.sidebar:
-    st.markdown("### ⚙️ Setup")
+    st.markdown("### Setup")
 
     st.markdown("**Music Database (MuSe CSV)**")
     music_db_file = st.file_uploader("Upload muse_dataset.csv", type=["csv"],
@@ -204,12 +204,7 @@ with st.sidebar:
     st.caption("ECG + EDA → Emotion (arousal-valence) → Music recommendations via MuSe dataset.")
     st.caption("Uses subject-specific normalization with Random Forest Regressor (CASE dataset).")
 
-st.markdown("""
-<div class="hero">
-  <h1>Emotion<span class="accent">Beats</span></h1>
-  <p>Physiological signal analysis &rarr; emotion prediction &rarr; personalized music recommendations</p>
-</div>
-""", unsafe_allow_html=True)
+st.title("Emotion Aware Music Recommendation")
 
 tab_upload, tab_demo = st.tabs(["Upload Signals", "🎲 Demo Mode"])
 
