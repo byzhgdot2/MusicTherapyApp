@@ -7,7 +7,7 @@ import io
 import os
 
 st.set_page_config(
-    page_title="Emotion Based Music Recommendation",
+    page_title="EmotionBeats",
     page_icon="🎵",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -76,6 +76,13 @@ def va_scatter(current_v, current_a, target_v, target_a, playlist=None):
     plt.tight_layout(pad=.5)
     return fig
 
+def _get_field(song, candidates, fallback="Unknown"):
+    for col in candidates:
+        val = song.get(col, None)
+        if val is not None and str(val).strip() and str(val).strip().lower() != "nan":
+            return str(val).strip()
+    return fallback
+
 def render_playlist(result):
     playlist = result.get("playlist", [])
     if not playlist:
@@ -84,20 +91,12 @@ def render_playlist(result):
 
     st.markdown('<div class="card-title">🎵 Your Playlist</div>', unsafe_allow_html=True)
     for i, song in enumerate(playlist, 1):
-        if isinstance(song, dict):
-            title  = song.get('title', 'Unknown')
-            artist = song.get('artist', 'Unknown Artist')
-            genre  = song.get('genre', '—')
-            v      = song.get('valence', 0)
-            a      = song.get('arousal', 0)
-            dist   = song.get('distance', 0)
-        else:  # pandas Series
-            title  = song.get('title', 'Unknown')
-            artist = song.get('artist', 'Unknown Artist')
-            genre  = song.get('genre', '—')
-            v      = float(song.get('valence', 0))
-            a      = float(song.get('arousal', 0))
-            dist   = float(song.get('distance', 0))
+        title  = _get_field(song, ['track', 'title', 'name'])
+        artist = _get_field(song, ['artist', 'artist_name'], fallback='Unknown Artist')
+        genre  = _get_field(song, ['seeds', 'genre', 'tags'], fallback='—')
+        v      = float(song.get('valence', 0))
+        a      = float(song.get('arousal', 0))
+        dist   = float(song.get('distance', 0))
 
         st.markdown(f"""
         <div class="song-card">
@@ -131,7 +130,7 @@ def render_emotion_summary(result):
         st.markdown(f"<small style='color:#606880'>V={te['valence']:.2f} · A={te['arousal']:.2f}</small>", unsafe_allow_html=True)
 
 with st.sidebar:
-    st.markdown("### Setup")
+    st.markdown("### ⚙️ Setup")
 
     st.markdown("**Music Database (MuSe CSV)**")
     music_db_file = st.file_uploader("Upload muse_dataset.csv", type=["csv"],
@@ -202,15 +201,17 @@ with st.sidebar:
 
     st.divider()
     st.markdown("**About**")
-    st.caption("""
-    Music therapy has shown great promise in improving the mental health of many, being able to reduce stress and induce relaxation. Current music therapy requires professional guidance which makes it inaccessible during real-world applications and cannot adapt to a person's emotions out of consultations. Recently, new methods for music therapy have emerged utilizing emotion tracking and artificial intelligence to create recommendations on demand and have shown promising results. However, these new methods require the user to provide additional information to software that takes them out of the listening experience, such as submitting facial photos, talking to chatbots, or speaking into a microphone. This project proposes a solution that utilizes electrical data from a wearable device to determine a person's mood in real time while the user is listening. It will recommend new, dynamic music that will adapt to their current mood, guiding the user to a pre determined mood end goal.
-    
-    
-    This project takes in a 60+ second snippet of user inputted HR (Heart Rate), HRV (Heart Rate Variation), and EDA (Electrodermal Activity). Try it out below!
-    """)
-    
+    st.caption("ECG + EDA → Emotion (arousal-valence) → Music recommendations via MuSe dataset.")
+    st.caption("Uses subject-specific normalization with Random Forest Regressor (CASE dataset).")
 
-tab_upload, tab_demo = st.tabs(["Upload Signals", "Demo Mode"])
+st.markdown("""
+<div class="hero">
+  <h1>Emotion<span class="accent">Beats</span></h1>
+  <p>Physiological signal analysis &rarr; emotion prediction &rarr; personalized music recommendations</p>
+</div>
+""", unsafe_allow_html=True)
+
+tab_upload, tab_demo = st.tabs(["Upload Signals", "🎲 Demo Mode"])
 
 with tab_upload:
     if not st.session_state.system:
@@ -231,7 +232,7 @@ with tab_upload:
             if uploaded:
                 try:
                     df = pd.read_csv(uploaded)
-                    st.success(f"Loaded {len(df):,} samples — columns: {', '.join(df.columns)}")
+                    st.success(f"✓ Loaded {len(df):,} samples — columns: {', '.join(df.columns)}")
                     if 'ecg' not in df.columns or 'gsr' not in df.columns:
                         st.error("CSV must have `ecg` and `gsr` columns.")
                         df = None
