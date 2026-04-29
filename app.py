@@ -6,7 +6,7 @@ import matplotlib.patches as mpatches
 import os
 
 st.set_page_config(
-    page_title="Emotion Aware Music Reccommender",
+    page_title="Emotion Aware Music Recommender",
     page_icon="🎵",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -203,7 +203,7 @@ with st.sidebar:
     )
 
 #======================================MAIN -----------------
-st.title("🎵 Emotion Aware Music Recommendation")
+st.title("Emotion Aware Music Recommender")
 st.caption("Physiological signal analysis → emotion prediction → personalized music recommendations")
 
 tab_upload, tab_demo = st.tabs(["Upload Signals", "🎲 Demo Mode"])
