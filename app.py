@@ -140,7 +140,7 @@ with st.sidebar:
                                      accept_multiple_files=True,
                                      key="physio_upload")
 
-    if st.button("Initialize & Train", use_container_width=True, type="primary"):
+    if st.button("Initialize & Train", width='stretch', type="primary"):
         if not music_db_file:
             st.error("Upload muse_dataset.csv first.")
         else:
@@ -276,7 +276,7 @@ with tab_upload:
                                         help="Interpolate through intermediate emotions")
 
         if df is not None:
-            if st.button("Predict & Recommend", type="primary", use_container_width=True):
+            if st.button("Predict & Recommend", type="primary", width='stretch'):
                 if not st.session_state.trained and not manual_mode:
                     st.warning("Model not trained — either upload CASE data in the sidebar or enable the emotion override.")
                     st.stop()
@@ -316,7 +316,7 @@ with tab_upload:
                     result["target_emotion"]["valence"],  result["target_emotion"]["arousal"],
                     result.get("playlist", [])
                 )
-                st.pyplot(fig, use_container_width=False)
+                st.pyplot(fig, width='content')
 
                 if result.get("extracted_features"):
                     with st.expander("Extracted Features"):
@@ -361,7 +361,7 @@ with tab_demo:
 
             demo_len = st.slider("Playlist length", 3, 10, 5, key="demo_len")
 
-        if st.button("Run Demo", type="primary", use_container_width=True):
+        if st.button("Run Demo", type="primary", width='stretch'):
             with st.spinner("Building playlist…"):
                 try:
                     demo_result = st.session_state.system.recommender.recommend_playlist(
@@ -391,7 +391,7 @@ with tab_demo:
                     dr["target_emotion"]["valence"],  dr["target_emotion"]["arousal"],
                     dr.get("playlist", [])
                 )
-                st.pyplot(fig3, use_container_width=False)
+                st.pyplot(fig3, width='content')
 
             with dr2:
                 render_playlist(dr)
