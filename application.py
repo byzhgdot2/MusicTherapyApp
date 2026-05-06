@@ -122,7 +122,9 @@ def render_emotion_summary(result):
         st.write(emotion_label_str(te["description"], te["quadrant"]))
         st.caption(f"V={te['valence']:.2f} · A={te['arousal']:.2f}")
 
-######################### SIDEBAR #########################################
+LOCAL_PHYSIO_DIR = r"C:\path\to\CASE\Physiological"
+LOCAL_ANNOT_DIR  = r"C:\path\to\CASE\Annotated"
+
 with st.sidebar:
     st.markdown("### Setup")
 
@@ -131,16 +133,8 @@ with st.sidebar:
                                       label_visibility="collapsed", key="music_db_upload")
 
     st.divider()
-    st.markdown("**CASE Dataset** *(for training)*")
-    st.caption("Upload all `sub_N.csv` files from both folders.")
-    annot_files  = st.file_uploader("Annotated CSVs", type=["csv"],
-                                     accept_multiple_files=True,
-                                     key="annot_upload")
-    physio_files = st.file_uploader("Physiological CSVs", type=["csv"],
-                                     accept_multiple_files=True,
-                                     key="physio_upload")
 
-    if st.button("Initialize & Train", width='stretch', type="primary"):
+    if st.button("Initialize & Train", use_container_width=True, type="primary"):
         if not music_db_file:
             st.error("Upload muse_dataset.csv first.")
         else:
@@ -157,23 +151,11 @@ with st.sidebar:
                     st.error(f"Failed to load music DB: {e}")
                     st.stop()
 
-            if physio_files and annot_files:
-                prog = st.progress(0, text="Saving uploaded files…")
+            if os.path.isdir(LOCAL_PHYSIO_DIR) and os.path.isdir(LOCAL_ANNOT_DIR):
+                prog = st.progress(0, text="Training model…")
                 try:
-                    p_dir = os.path.join(tmpdir, "Physiological")
-                    a_dir = os.path.join(tmpdir, "Annotated")
-                    os.makedirs(p_dir, exist_ok=True)
-                    os.makedirs(a_dir, exist_ok=True)
-
-                    for f in physio_files:
-                        with open(os.path.join(p_dir, f.name), "wb") as out:
-                            out.write(f.getvalue())
-                    for f in annot_files:
-                        with open(os.path.join(a_dir, f.name), "wb") as out:
-                            out.write(f.getvalue())
-
                     n = st.session_state.system.train_model(
-                        p_dir, a_dir,
+                        LOCAL_PHYSIO_DIR, LOCAL_ANNOT_DIR,
                         progress_cb=lambda p: prog.progress(p, text=f"Training… {int(p*100)}%")
                     )
                     prog.empty()
@@ -184,7 +166,7 @@ with st.sidebar:
                     st.error(f"Training error: {e}")
             else:
                 st.session_state.trained = False
-                st.info("Music DB loaded. Upload CASE files to enable full pipeline.")
+                st.info("Music DB loaded. Update LOCAL_PHYSIO_DIR and LOCAL_ANNOT_DIR in app.py to enable full pipeline.")
 
     st.divider()
 
@@ -202,11 +184,10 @@ with st.sidebar:
         "and recommends music that guides the user toward a predetermined mood end goal — no extra input required."
     )
 
-#======================================MAIN -----------------
 st.title("Emotion Aware Music Recommender")
 st.caption("Physiological signal analysis → emotion prediction → personalized music recommendations")
 
-tab_upload, tab_demo = st.tabs(["Upload Signals", "🎲 Demo Mode"])
+tab_upload, tab_demo = st.tabs(["Upload Signals", "Demo Mode"])
 
 with tab_upload:
     if not st.session_state.system:
@@ -276,9 +257,9 @@ with tab_upload:
                                         help="Interpolate through intermediate emotions")
 
         if df is not None:
-            if st.button("Predict & Recommend", type="primary", width='stretch'):
+            if st.button("Predict & Recommend", type="primary", use_container_width=True):
                 if not st.session_state.trained and not manual_mode:
-                    st.warning("Model not trained — either upload CASE data in the sidebar or enable the emotion override.")
+                    st.warning("Model not trained — either update the local dataset paths in app.py or enable the emotion override.")
                     st.stop()
                 with st.spinner("Extracting features & predicting emotion…"):
                     try:
@@ -316,7 +297,7 @@ with tab_upload:
                     result["target_emotion"]["valence"],  result["target_emotion"]["arousal"],
                     result.get("playlist", [])
                 )
-                st.pyplot(fig, width='content')
+                st.pyplot(fig, use_container_width=False)
 
                 if result.get("extracted_features"):
                     with st.expander("Extracted Features"):
@@ -330,7 +311,7 @@ with tab_demo:
     st.caption("Set your current and target emotions, pick a genre, and get a playlist.")
 
     if not st.session_state.system:
-        st.info("At minimum, provide the **Music Database** path in the sidebar and click Initialize.")
+        st.info("At minimum, provide the Music Database in the sidebar and click Initialize.")
     else:
         d_col1, d_col2 = st.columns([1, 1], gap="large")
 
@@ -361,7 +342,7 @@ with tab_demo:
 
             demo_len = st.slider("Playlist length", 3, 10, 5, key="demo_len")
 
-        if st.button("Run Demo", type="primary", width='stretch'):
+        if st.button("Run Demo", type="primary", use_container_width=True):
             with st.spinner("Building playlist…"):
                 try:
                     demo_result = st.session_state.system.recommender.recommend_playlist(
@@ -391,7 +372,7 @@ with tab_demo:
                     dr["target_emotion"]["valence"],  dr["target_emotion"]["arousal"],
                     dr.get("playlist", [])
                 )
-                st.pyplot(fig3, width='content')
+                st.pyplot(fig3, use_container_width=False)
 
             with dr2:
                 render_playlist(dr)
