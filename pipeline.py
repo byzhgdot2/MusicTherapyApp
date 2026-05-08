@@ -174,7 +174,7 @@ class MusicRecommender:
             return sorted(self.db['genre'].dropna().unique().tolist())
         return []
 
-    def emotion_label(self, valence, arousal):
+    def get_emotion_label(self, valence, arousal):
         if valence >= 0 and arousal >= 0:
             return 'Q1', 'Happy / Excited'
         elif valence < 0 and arousal >= 0:
@@ -201,9 +201,12 @@ class MusicRecommender:
         pool['distance'] = np.sqrt((pool['valence'] - target_v) ** 2 + (pool['arousal'] - target_a) ** 2)
         return pool.nsmallest(n, 'distance')
 
+    def recommend_playlist(self, curr_v, curr_a, target_v, target_a, genre=None, playlist_length=5, gradual=True):
+        return self.recommend(curr_v, curr_a, target_v, target_a, genre=genre, length=playlist_length, gradual=gradual)
+
     def recommend(self, curr_v, curr_a, target_v, target_a, genre=None, length=5, gradual=True):
-        curr_quad, curr_desc   = self.emotion_label(curr_v, curr_a)
-        target_quad, target_desc = self.emotion_label(target_v, target_a)
+        curr_quad, curr_desc   = self.get_emotion_label(curr_v, curr_a)
+        target_quad, target_desc = self.get_emotion_label(target_v, target_a)
 
         playlist, seen = [], set()
 
@@ -242,7 +245,7 @@ class EmotionMusicSystem:
         self.trained = True
         return n
 
-    def predict_emotion(self, ecg_data, eda_data):
+    def predict_emotion(self, ecg_data, eda_data, subject_id=None):
         return self.predictor.predict(ecg_data, eda_data)
 
     def get_emotion_label(self, valence, arousal):
