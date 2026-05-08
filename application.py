@@ -269,8 +269,8 @@ with tab_upload:
                             curr_v, curr_a = override_v, override_a
                             feats = {}
                         else:
-                            curr_v, curr_a, feats = st.session_state.system.predictor.predict_emotion(
-                                ecg, gsr, int(subject_id)
+                            curr_v, curr_a, feats = st.session_state.system.predictor.predict(
+                                ecg, gsr
                             )
                         rec = st.session_state.system.recommender.recommend_playlist(
                             curr_v, curr_a,
