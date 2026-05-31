@@ -213,9 +213,8 @@ with st.sidebar:
     )
 
     st.divider()
-    st.divider()
 
-    st.caption("**Demo Mode** — loads the music database only. No training required.")
+    st.caption("**Demo Mode:** loads the music database only. No training required.")
     if st.button("Initialize (Demo)", use_container_width=True, type="secondary"):
         if not music_db_file:
             st.error("Upload muse_dataset.csv first.")
@@ -233,7 +232,7 @@ with st.sidebar:
 
     st.divider()
 
-    st.caption("**Upload Mode** — downloads the CASE dataset and trains the emotion model. May take several minutes.")
+    st.caption("**Upload Mode:** downloads the CASE dataset and trains the emotion model. May take several minutes.")
     if st.button("Initialize + Train (Upload Mode)", use_container_width=True, type="primary"):
         if not music_db_file:
             st.error("Upload muse_dataset.csv first.")
