@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import os
 import tempfile
-import zipfile
+
 
 st.set_page_config(
     page_title="Emotion Aware Music Recommender",
@@ -116,26 +116,6 @@ def render_emotion_summary(result):
         st.write(emotion_label_str(te["description"], te["quadrant"]))
         st.caption(f"V={te['valence']:.2f} · A={te['arousal']:.2f}")
 
-# ─── helper: extract uploaded ZIPs into a temp dir ───────────────────────────
-def extract_zip_to_tempdir(file_obj, label):
-    """Write uploaded ZIP to disk, extract it, return the extraction directory."""
-    tmpdir = tempfile.mkdtemp()
-    zip_path = os.path.join(tmpdir, "upload.zip")
-    with open(zip_path, "wb") as f:
-        f.write(file_obj.getvalue())
-    try:
-        with zipfile.ZipFile(zip_path, "r") as z:
-            z.extractall(tmpdir)
-    except zipfile.BadZipFile:
-        st.error(f"{label} upload is not a valid ZIP file.")
-        return None
-    os.remove(zip_path)
-
-    # If extraction produced a single sub-folder, descend into it
-    entries = [e for e in os.listdir(tmpdir) if not e.startswith('.')]
-    if len(entries) == 1 and os.path.isdir(os.path.join(tmpdir, entries[0])):
-        return os.path.join(tmpdir, entries[0])
-    return tmpdir
 
 # ─── helper: manual genre text input with fallback to DB genres ───────────────
 def genre_selector(genres, key_prefix):
@@ -169,28 +149,12 @@ with st.sidebar:
         label_visibility="collapsed", key="music_db_upload"
     )
 
-    st.divider()
-
-    # ── Training data ─────────────────────────────────────────────────────────
-    st.markdown("**Training Data (CASE dataset)**")
-    st.caption(
-        "Upload two ZIP files — one containing the Physiological CSVs "
-        "(`sub_1.csv` … `sub_30.csv`) and one containing the Annotated CSVs. "
-        "If you skip this step the model will not be trained, but you can still "
-        "use the emotion override in the Upload or Demo tabs."
-    )
-    physio_zip = st.file_uploader(
-        "Physiological signals ZIP", type=["zip"],
-        label_visibility="visible", key="physio_zip_upload"
-    )
-    annot_zip = st.file_uploader(
-        "Annotations ZIP", type=["zip"],
-        label_visibility="visible", key="annot_zip_upload"
-    )
+    LOCAL_PHYSIO_DIR = r"C:\Users\brand\Downloads\SRP Music Rec\Interpolated\Physiological"
+    LOCAL_ANNOT_DIR  = r"C:\Users\brand\Downloads\SRP Music Rec\Interpolated\Annotated"
 
     st.divider()
 
-    # ── Initialize & Train button ─────────────────────────────────────────────
+    # ── Initialize button ─────────────────────────────────────────────────────
     if st.button("Initialize", use_container_width=True, type="primary"):
         if not music_db_file:
             st.error("Upload muse_dataset.csv first.")
@@ -209,39 +173,27 @@ with st.sidebar:
                     st.error(f"Failed to load music DB: {e}")
                     st.stop()
 
-            # Train if both ZIPs are provided
-            if physio_zip and annot_zip:
-                with st.spinner("Extracting physiological data…"):
-                    physio_dir = extract_zip_to_tempdir(physio_zip, "Physiological")
-                    annot_dir  = extract_zip_to_tempdir(annot_zip,  "Annotations")
-
-                if physio_dir and annot_dir:
-                    # Quick sanity check
-                    physio_csvs = [f for f in os.listdir(physio_dir) if f.endswith(".csv")]
-                    annot_csvs  = [f for f in os.listdir(annot_dir)  if f.endswith(".csv")]
-                    if not physio_csvs:
-                        st.error(f"No CSVs found in Physiological ZIP. Contents: {os.listdir(physio_dir)}")
-                    elif not annot_csvs:
-                        st.error(f"No CSVs found in Annotations ZIP. Contents: {os.listdir(annot_dir)}")
-                    else:
-                        st.info(f"Found {len(physio_csvs)} physio files, {len(annot_csvs)} annotation files.")
-                        prog = st.progress(0, text="Training model…")
-                        try:
-                            n = st.session_state.system.train_model(
-                                physio_dir, annot_dir,
-                                progress_cb=lambda p: prog.progress(p, text=f"Training… {int(p*100)}%")
-                            )
-                            prog.empty()
-                            st.session_state.trained = True
-                            st.success(f"✓ Trained on {n} windows from {len(physio_csvs)} subjects")
-                        except Exception as e:
-                            prog.empty()
-                            st.error(f"Training error: {e}")
+            # Train from local CASE dataset
+            if os.path.isdir(LOCAL_PHYSIO_DIR) and os.path.isdir(LOCAL_ANNOT_DIR):
+                physio_csvs = [f for f in os.listdir(LOCAL_PHYSIO_DIR) if f.endswith(".csv")]
+                annot_csvs  = [f for f in os.listdir(LOCAL_ANNOT_DIR)  if f.endswith(".csv")]
+                st.info(f"Found {len(physio_csvs)} physio files, {len(annot_csvs)} annotation files.")
+                prog = st.progress(0, text="Training model…")
+                try:
+                    n = st.session_state.system.train_model(
+                        LOCAL_PHYSIO_DIR, LOCAL_ANNOT_DIR,
+                        progress_cb=lambda p: prog.progress(p, text=f"Training… {int(p*100)}%")
+                    )
+                    prog.empty()
+                    st.session_state.trained = True
+                    st.success(f"✓ Trained on {n} windows from {len(physio_csvs)} subjects")
+                except Exception as e:
+                    prog.empty()
+                    st.error(f"Training error: {e}")
             else:
                 st.session_state.trained = False
-                st.info(
-                    "Music DB loaded. Upload Physiological + Annotations ZIPs above "
-                    "and click Initialize & Train again to enable full pipeline."
+                st.warning(
+                    "CASE dataset not found on disk. Use the emotion override toggle to run without a trained model."
                 )
 
     st.divider()
