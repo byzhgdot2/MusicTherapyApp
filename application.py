@@ -143,17 +143,23 @@ def genre_selector(genres, key_prefix):
 
 def _scrape_gdrive_file_ids(folder_id: str):
     import re
-    url  = f"https://drive.google.com/drive/folders/{folder_id}"
-    hdrs = {"User-Agent": "Mozilla/5.0"}
-    resp = requests.get(url, headers=hdrs, timeout=30)
+    resp = requests.get(
+        f"https://drive.google.com/drive/folders/{folder_id}",
+        headers={"User-Agent": "Mozilla/5.0"}, timeout=30
+    )
     resp.raise_for_status()
     ids   = re.findall(r'"([a-zA-Z0-9_-]{33})"', resp.text)
     names = re.findall(r'"([\w\-. ]+\.(?:csv|xlsx|xls))"', resp.text)
-    return list(zip(names, ids)) if names else []
+    seen, pairs = set(), []
+    for name, fid in zip(names, ids):
+        if name not in seen:
+            seen.add(name)
+            pairs.append((name, fid))
+    return pairs
 
 
 def download_gdrive_folder(folder_id: str, dest_dir: str, label: str, progress_bar):
-    import gdown
+    import gdown, inspect
     os.makedirs(dest_dir, exist_ok=True)
 
     try:
@@ -162,11 +168,16 @@ def download_gdrive_folder(folder_id: str, dest_dir: str, label: str, progress_b
         file_pairs = []
 
     if file_pairs:
+        supported  = inspect.signature(gdown.download).parameters
+        dl_kwargs  = {"quiet": True}
+        if "fuzzy" in supported:
+            dl_kwargs["fuzzy"] = True
+
         downloaded = 0
         for i, (name, fid) in enumerate(file_pairs):
             dest_path = os.path.join(dest_dir, name)
             try:
-                gdown.download(f"https://drive.google.com/uc?id={fid}", dest_path, quiet=True, fuzzy=True)
+                gdown.download(f"https://drive.google.com/uc?id={fid}", dest_path, **dl_kwargs)
                 downloaded += 1
             except Exception as e:
                 st.warning(f"Skipped {name}: {e}")
