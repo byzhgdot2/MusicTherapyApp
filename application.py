@@ -177,25 +177,31 @@ with st.sidebar:
 
     st.divider()
 
-    st.markdown("**CASE Dataset**")
-    if st.session_state.dataset_ready:
-        physio_files = [f for f in os.listdir(st.session_state.physio_dir)
-                        if f.endswith((".csv", ".xlsx", ".xls"))]
-        annot_files  = [f for f in os.listdir(st.session_state.annot_dir)
-                        if f.endswith((".csv", ".xlsx", ".xls"))]
-        st.success(
-            f"✓ Dataset ready  \n"
-            f"{len(physio_files)} physio · {len(annot_files)} annotation files"
-        )
-    else:
-        st.caption(
-            "The physiological and annotation files will be downloaded automatically "
-            "from Google Drive when you click Initialize."
-        )
+    st.divider()
+
+    # ── Demo-only init ─────────────────────────────────────────────────────────
+    st.caption("**Demo Mode** — loads the music database only. No training required.")
+    if st.button("Initialize (Demo)", use_container_width=True, type="secondary"):
+        if not music_db_file:
+            st.error("Upload muse_dataset.csv first.")
+        else:
+            with st.spinner("Loading music database…"):
+                try:
+                    tmpdir = tempfile.mkdtemp()
+                    db_path = os.path.join(tmpdir, "muse_dataset.csv")
+                    with open(db_path, "wb") as f:
+                        f.write(music_db_file.getvalue())
+                    system = pl.EmotionMusicSystem(db_path)
+                    st.session_state.system = system
+                    st.success("✓ Loaded — Demo Mode ready")
+                except Exception as e:
+                    st.error(f"Failed to load music DB: {e}")
 
     st.divider()
 
-    if st.button("Initialize", use_container_width=True, type="primary"):
+    # ── Full init (download + train) ───────────────────────────────────────────
+    st.caption("**Upload Mode** — downloads the CASE dataset and trains the emotion model. This may take several minutes.")
+    if st.button("Initialize + Train (Upload Mode)", use_container_width=True, type="primary"):
         if not music_db_file:
             st.error("Upload muse_dataset.csv first.")
         else:
@@ -264,16 +270,35 @@ with st.sidebar:
     has_db     = st.session_state.system is not None
     is_trained = st.session_state.trained
     st.write("✓ Music database" if has_db else "○ Music database (not loaded)")
-    st.write("✓ Dataset downloaded" if st.session_state.dataset_ready else "○ Dataset (will download on Initialize)")
-    st.write("✓ Emotion model trained" if is_trained else "○ Emotion model (not trained)")
+    st.write("✓ Dataset downloaded" if st.session_state.dataset_ready else "○ Dataset (not downloaded)")
+    st.write("✓ Emotion model trained" if is_trained else "○ Emotion model (not trained — Upload Mode only)")
 
     st.divider()
     st.markdown("**About**")
     st.caption(
-        "Music therapy has shown great promise in improving mental health, reducing stress and inducing relaxation. "
-        "Current music therapy requires professional guidance, making it inaccessible in real-world settings. "
-        "This project uses electrical data from a wearable device to determine a person's mood in real time "
-        "and recommends music that guides the user toward a predetermined mood end goal — no extra input required."
+        "Music therapy has shown great promise in improving mental health, reducing stress and inducing "
+        "relaxation for patients around the world. Current music therapy requires professional guidance, "
+        "making it largely inaccessible in the real world. Further, music therapy largely cannot adapt to "
+        "a person's emotions outside of consultations. Recently, new methods have emerged utilizing emotion "
+        "tracking and AI to create recommendations, showing promising results. Otherwise, many patients have "
+        "utilized self-diagnosed music as a replacement. However, these methods each have their own drawbacks. "
+        "Many emotion tracking and AI models use additional input, including facial photos, manual user input, "
+        "and chatbot interaction in order to generate recommendations. These interruptions may interfere with "
+        "the listening experience, and therefore may interfere with the effectiveness of therapy as a whole "
+        "as well. Moreover, most systems treat emotion as a static input rather than a dynamic target, matching "
+        "music to either the user's current input or their desired one, with no transition between the two. "
+        "These systems are severely lacking in comparison to clinical music therapy as a result, as professional "
+        "therapy typically follows the Iso-Principle, in which music first reaches the user at their current "
+        "state before sliding towards a target (Davis, Gfeller, & Thaut, 2008; Altshuler, 1948). User inputted "
+        "data and self diagnosis may risk user bias as well, as people are often inconsistent in judging their "
+        "own emotional state, particularly when distressed, and may report what they expect to feel rather than "
+        "what they actually feel (Barrett et al., 2007). This project presents WBDMR, a closed loop system which "
+        "utilizes an EmotiBit wearable to capture EDA and PPG biosignals, predict the user's emotional state on "
+        "a valence-arousal plane using a Gradient Boosting model trained on the CASE dataset. From there, the "
+        "system will recommend a gradual playlist transition toward a target emotion from music sourced in the "
+        "MuSe dataset. The recommendation engine is grounded in the Iso-Principle, where the listener's current "
+        "emotional state is first reflected, and steered towards a target throughout the duration of a playlist. "
+        "The model achieves R² scores of 0.119 for valence and 0.187 for arousal on the CASE dataset."
     )
 
 
