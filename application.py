@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import os
 import tempfile
+import zipfile
 
 
 st.set_page_config(
@@ -136,6 +137,26 @@ def genre_selector(genres, key_prefix):
     return None if picked == "(any)" else picked
 
 
+
+def _extract_zip(file_obj, label):
+    """Extract an uploaded ZIP to a temp dir, return the dir path."""
+    tmpdir = tempfile.mkdtemp()
+    zip_path = os.path.join(tmpdir, "upload.zip")
+    with open(zip_path, "wb") as f:
+        f.write(file_obj.getvalue())
+    try:
+        with zipfile.ZipFile(zip_path, "r") as z:
+            z.extractall(tmpdir)
+    except zipfile.BadZipFile:
+        import streamlit as st
+        st.error(f"{label} is not a valid ZIP file.")
+        return None
+    os.remove(zip_path)
+    entries = [e for e in os.listdir(tmpdir) if not e.startswith('.')]
+    if len(entries) == 1 and os.path.isdir(os.path.join(tmpdir, entries[0])):
+        return os.path.join(tmpdir, entries[0])
+    return tmpdir
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  SIDEBAR
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -149,8 +170,23 @@ with st.sidebar:
         label_visibility="collapsed", key="music_db_upload"
     )
 
-    LOCAL_PHYSIO_DIR = r"C:\Users\brand\Downloads\SRP Music Rec\Interpolated\Physiological"
-    LOCAL_ANNOT_DIR  = r"C:\Users\brand\Downloads\SRP Music Rec\Interpolated\Annotated"
+    st.divider()
+
+    # ── Training data (ZIP upload) ────────────────────────────────────────────
+    st.markdown("**Training Data (CASE dataset)**")
+    st.caption(
+        "Upload two ZIP files — one containing the Physiological CSVs "
+        "(`sub_1.csv` … `sub_30.csv`) and one containing the Annotated CSVs. "
+        "Skip to use emotion override instead."
+    )
+    physio_zip = st.file_uploader(
+        "Physiological signals ZIP", type=["zip"],
+        label_visibility="visible", key="physio_zip_upload"
+    )
+    annot_zip = st.file_uploader(
+        "Annotations ZIP", type=["zip"],
+        label_visibility="visible", key="annot_zip_upload"
+    )
 
     st.divider()
 
@@ -173,29 +209,35 @@ with st.sidebar:
                     st.error(f"Failed to load music DB: {e}")
                     st.stop()
 
-            # Train from local CASE dataset
-            st.caption(f"Looking for: `{LOCAL_PHYSIO_DIR}`")
-            if os.path.isdir(LOCAL_PHYSIO_DIR) and os.path.isdir(LOCAL_ANNOT_DIR):
-                physio_csvs = [f for f in os.listdir(LOCAL_PHYSIO_DIR) if f.endswith((".csv", ".xlsx"))]
-                annot_csvs  = [f for f in os.listdir(LOCAL_ANNOT_DIR)  if f.endswith((".csv", ".xlsx"))]
-                st.info(f"Found {len(physio_csvs)} physio files, {len(annot_csvs)} annotation files.")
-                prog = st.progress(0, text="Training model…")
-                try:
-                    n = st.session_state.system.train_model(
-                        LOCAL_PHYSIO_DIR, LOCAL_ANNOT_DIR,
-                        progress_cb=lambda p: prog.progress(p, text=f"Training… {int(p*100)}%")
-                    )
-                    prog.empty()
-                    st.session_state.trained = True
-                    st.success(f"✓ Trained on {n} windows from {len(physio_csvs)} subjects")
-                except Exception as e:
-                    prog.empty()
-                    st.error(f"Training error: {e}")
+            # Train from uploaded ZIPs
+            if physio_zip and annot_zip:
+                with st.spinner("Extracting data…"):
+                    physio_dir = _extract_zip(physio_zip, "Physiological")
+                    annot_dir  = _extract_zip(annot_zip,  "Annotations")
+                if physio_dir and annot_dir:
+                    physio_csvs = [f for f in os.listdir(physio_dir) if f.endswith(".csv")]
+                    annot_csvs  = [f for f in os.listdir(annot_dir)  if f.endswith(".csv")]
+                    if not physio_csvs:
+                        st.error(f"No CSVs in Physiological ZIP. Found: {os.listdir(physio_dir)}")
+                    elif not annot_csvs:
+                        st.error(f"No CSVs in Annotations ZIP. Found: {os.listdir(annot_dir)}")
+                    else:
+                        st.info(f"Found {len(physio_csvs)} physio, {len(annot_csvs)} annotation files.")
+                        prog = st.progress(0, text="Training model…")
+                        try:
+                            n = st.session_state.system.train_model(
+                                physio_dir, annot_dir,
+                                progress_cb=lambda p: prog.progress(p, text=f"Training… {int(p*100)}%")
+                            )
+                            prog.empty()
+                            st.session_state.trained = True
+                            st.success(f"✓ Trained on {n} windows from {len(physio_csvs)} subjects")
+                        except Exception as e:
+                            prog.empty()
+                            st.error(f"Training error: {e}")
             else:
                 st.session_state.trained = False
-                st.warning(
-                    "CASE dataset not found on disk. Use the emotion override toggle to run without a trained model."
-                )
+                st.info("No ZIPs uploaded — music DB loaded. Use emotion override to run without training.")
 
     st.divider()
 
