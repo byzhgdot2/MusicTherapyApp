@@ -5,8 +5,6 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import os
 import tempfile
-import zipfile
-
 
 st.set_page_config(
     page_title="Emotion Aware Music Recommender",
@@ -26,9 +24,16 @@ for k, v in {
     "trained": False,
     "result": None,
     "demo_result": None,
+    "dataset_ready": False,
+    "physio_dir": None,
+    "annot_dir": None,
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
+
+# ── Google Drive folder IDs ────────────────────────────────────────────────────
+GDRIVE_ANNOT_FOLDER_ID  = "1WZfE0gnPkvgIHfsvdY_7PUDQ-r05oGjZ"
+GDRIVE_PHYSIO_FOLDER_ID = "1jqz4YcJcCpwLAP6PAfeGzrwNxqomfqis"
 
 QUAD_EMOJI = {"Q1": "😄", "Q2": "😠", "Q3": "😢", "Q4": "😌"}
 
@@ -117,13 +122,7 @@ def render_emotion_summary(result):
         st.write(emotion_label_str(te["description"], te["quadrant"]))
         st.caption(f"V={te['valence']:.2f} · A={te['arousal']:.2f}")
 
-
-# ─── helper: manual genre text input with fallback to DB genres ───────────────
 def genre_selector(genres, key_prefix):
-    """
-    Show a dropdown of known genres plus a free-text override.
-    Returns the selected/typed genre string, or None for 'any'.
-    """
     options = ["(any)"] + genres
     col_sel, col_txt = st.columns([2, 1])
     with col_sel:
@@ -131,31 +130,38 @@ def genre_selector(genres, key_prefix):
     with col_txt:
         custom = st.text_input("…or type a genre", key=f"{key_prefix}_txt",
                                placeholder="e.g. jazz, metal, pop")
-    # custom text input takes priority
     if custom.strip():
         return custom.strip()
     return None if picked == "(any)" else picked
 
 
-
-def _extract_zip(file_obj, label):
-    """Extract an uploaded ZIP to a temp dir, return the dir path."""
-    tmpdir = tempfile.mkdtemp()
-    zip_path = os.path.join(tmpdir, "upload.zip")
-    with open(zip_path, "wb") as f:
-        f.write(file_obj.getvalue())
+# ── Google Drive download helper ───────────────────────────────────────────────
+def download_gdrive_folder(folder_id: str, dest_dir: str, label: str, progress_bar):
+    """
+    Download all files in a public Google Drive folder using gdown.
+    Returns the number of files downloaded.
+    """
     try:
-        with zipfile.ZipFile(zip_path, "r") as z:
-            z.extractall(tmpdir)
-    except zipfile.BadZipFile:
-        import streamlit as st
-        st.error(f"{label} is not a valid ZIP file.")
-        return None
-    os.remove(zip_path)
-    entries = [e for e in os.listdir(tmpdir) if not e.startswith('.')]
-    if len(entries) == 1 and os.path.isdir(os.path.join(tmpdir, entries[0])):
-        return os.path.join(tmpdir, entries[0])
-    return tmpdir
+        import gdown
+    except ImportError:
+        st.error("gdown not installed. Add `gdown` to requirements.txt.")
+        st.stop()
+
+    os.makedirs(dest_dir, exist_ok=True)
+
+    # List files in folder via gdown
+    url = f"https://drive.google.com/drive/folders/{folder_id}"
+    try:
+        # gdown.download_folder downloads everything into dest_dir
+        gdown.download_folder(url, output=dest_dir, quiet=True, use_cookies=False)
+    except Exception as e:
+        st.error(f"Failed to download {label} from Google Drive: {e}")
+        return 0
+
+    files = [f for f in os.listdir(dest_dir)
+             if f.endswith((".csv", ".xlsx", ".xls"))]
+    return len(files)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  SIDEBAR
@@ -163,7 +169,6 @@ def _extract_zip(file_obj, label):
 with st.sidebar:
     st.markdown("### Setup")
 
-    # ── Music DB ──────────────────────────────────────────────────────────────
     st.markdown("**Music Database (MuSe CSV)**")
     music_db_file = st.file_uploader(
         "Upload muse_dataset.csv", type=["csv"],
@@ -172,30 +177,29 @@ with st.sidebar:
 
     st.divider()
 
-    # ── Training data (ZIP upload) ────────────────────────────────────────────
-    st.markdown("**Training Data (CASE dataset)**")
-    st.caption(
-        "Upload two ZIP files — one containing the Physiological CSVs "
-        "(`sub_1.csv` … `sub_30.csv`) and one containing the Annotated CSVs. "
-        "Skip to use emotion override instead."
-    )
-    physio_zip = st.file_uploader(
-        "Physiological signals ZIP", type=["zip"],
-        label_visibility="visible", key="physio_zip_upload"
-    )
-    annot_zip = st.file_uploader(
-        "Annotations ZIP", type=["zip"],
-        label_visibility="visible", key="annot_zip_upload"
-    )
+    st.markdown("**CASE Dataset**")
+    if st.session_state.dataset_ready:
+        physio_files = [f for f in os.listdir(st.session_state.physio_dir)
+                        if f.endswith((".csv", ".xlsx", ".xls"))]
+        annot_files  = [f for f in os.listdir(st.session_state.annot_dir)
+                        if f.endswith((".csv", ".xlsx", ".xls"))]
+        st.success(
+            f"✓ Dataset ready  \n"
+            f"{len(physio_files)} physio · {len(annot_files)} annotation files"
+        )
+    else:
+        st.caption(
+            "The physiological and annotation files will be downloaded automatically "
+            "from Google Drive when you click Initialize."
+        )
 
     st.divider()
 
-    # ── Initialize button ─────────────────────────────────────────────────────
     if st.button("Initialize", use_container_width=True, type="primary"):
         if not music_db_file:
             st.error("Upload muse_dataset.csv first.")
         else:
-            # Load music DB
+            # ── Load music DB ──────────────────────────────────────────────
             with st.spinner("Loading music database…"):
                 try:
                     tmpdir = tempfile.mkdtemp()
@@ -209,42 +213,59 @@ with st.sidebar:
                     st.error(f"Failed to load music DB: {e}")
                     st.stop()
 
-            # Train from uploaded ZIPs
-            if physio_zip and annot_zip:
-                with st.spinner("Extracting data…"):
-                    physio_dir = _extract_zip(physio_zip, "Physiological")
-                    annot_dir  = _extract_zip(annot_zip,  "Annotations")
-                if physio_dir and annot_dir:
-                    physio_csvs = [f for f in os.listdir(physio_dir) if f.endswith(".csv")]
-                    annot_csvs  = [f for f in os.listdir(annot_dir)  if f.endswith(".csv")]
-                    if not physio_csvs:
-                        st.error(f"No CSVs in Physiological ZIP. Found: {os.listdir(physio_dir)}")
-                    elif not annot_csvs:
-                        st.error(f"No CSVs in Annotations ZIP. Found: {os.listdir(annot_dir)}")
-                    else:
-                        st.info(f"Found {len(physio_csvs)} physio, {len(annot_csvs)} annotation files.")
-                        prog = st.progress(0, text="Training model…")
-                        try:
-                            n = st.session_state.system.train_model(
-                                physio_dir, annot_dir,
-                                progress_cb=lambda p: prog.progress(p, text=f"Training… {int(p*100)}%")
-                            )
-                            prog.empty()
-                            st.session_state.trained = True
-                            st.success(f"✓ Trained on {n} windows from {len(physio_csvs)} subjects")
-                        except Exception as e:
-                            prog.empty()
-                            st.error(f"Training error: {e}")
-            else:
-                st.session_state.trained = False
-                st.info("No ZIPs uploaded — music DB loaded. Use emotion override to run without training.")
+            # ── Download CASE dataset from Google Drive ────────────────────
+            if not st.session_state.dataset_ready:
+                base_tmp   = tempfile.mkdtemp()
+                physio_dir = os.path.join(base_tmp, "Physiological")
+                annot_dir  = os.path.join(base_tmp, "Annotated")
+
+                st.info("Downloading CASE dataset from Google Drive…")
+                prog = st.progress(0, text="Downloading physiological files…")
+
+                n_physio = download_gdrive_folder(
+                    GDRIVE_PHYSIO_FOLDER_ID, physio_dir, "Physiological", prog
+                )
+                prog.progress(0.5, text="Downloading annotation files…")
+
+                n_annot = download_gdrive_folder(
+                    GDRIVE_ANNOT_FOLDER_ID, annot_dir, "Annotated", prog
+                )
+                prog.empty()
+
+                if n_physio == 0 or n_annot == 0:
+                    st.error(
+                        f"Download incomplete — {n_physio} physio, {n_annot} annotation files found. "
+                        "Check that the Google Drive folders are shared publicly."
+                    )
+                else:
+                    st.session_state.physio_dir    = physio_dir
+                    st.session_state.annot_dir     = annot_dir
+                    st.session_state.dataset_ready = True
+                    st.success(f"✓ Downloaded {n_physio} physio, {n_annot} annotation files")
+
+            # ── Train model ────────────────────────────────────────────────
+            if st.session_state.dataset_ready:
+                prog2 = st.progress(0, text="Training model…")
+                try:
+                    n = st.session_state.system.train_model(
+                        st.session_state.physio_dir,
+                        st.session_state.annot_dir,
+                        progress_cb=lambda p: prog2.progress(p, text=f"Training… {int(p*100)}%")
+                    )
+                    prog2.empty()
+                    st.session_state.trained = True
+                    st.success(f"✓ Trained on {n} windows")
+                except Exception as e:
+                    prog2.empty()
+                    st.error(f"Training error: {e}")
 
     st.divider()
 
     has_db     = st.session_state.system is not None
     is_trained = st.session_state.trained
     st.write("✓ Music database" if has_db else "○ Music database (not loaded)")
-    st.write("✓ Emotion model trained" if is_trained else "○ Emotion model (not trained — use emotion override)")
+    st.write("✓ Dataset downloaded" if st.session_state.dataset_ready else "○ Dataset (will download on Initialize)")
+    st.write("✓ Emotion model trained" if is_trained else "○ Emotion model (not trained)")
 
     st.divider()
     st.markdown("**About**")
@@ -285,7 +306,7 @@ with tab_upload:
             if uploaded:
                 try:
                     df = pd.read_csv(uploaded)
-                    st.success(f"✓ Loaded {len(df):,} samples — columns: {', '.join(df.columns)}")
+                    st.success("✓ Loaded")
                     if 'ecg' not in df.columns or 'gsr' not in df.columns:
                         st.error("CSV must have `ecg` and `gsr` columns.")
                         df = None
@@ -336,8 +357,8 @@ with tab_upload:
             if st.button("Predict & Recommend", type="primary", use_container_width=True):
                 if not st.session_state.trained and not manual_mode:
                     st.warning(
-                        "Model not trained — upload the CASE dataset ZIPs in the sidebar "
-                        "and click Initialize & Train, OR enable the emotion override toggle above."
+                        "Model not trained — click Initialize in the sidebar, "
+                        "or enable the emotion override toggle above."
                     )
                     st.stop()
                 with st.spinner("Extracting features & predicting emotion…"):
