@@ -174,6 +174,7 @@ with st.sidebar:
                     st.stop()
 
             # Train from local CASE dataset
+            st.caption(f"Looking for: `{LOCAL_PHYSIO_DIR}`")
             if os.path.isdir(LOCAL_PHYSIO_DIR) and os.path.isdir(LOCAL_ANNOT_DIR):
                 physio_csvs = [f for f in os.listdir(LOCAL_PHYSIO_DIR) if f.endswith(".csv")]
                 annot_csvs  = [f for f in os.listdir(LOCAL_ANNOT_DIR)  if f.endswith(".csv")]
