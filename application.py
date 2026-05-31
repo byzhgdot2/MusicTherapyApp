@@ -141,66 +141,52 @@ def genre_selector(genres, key_prefix):
     return None if picked == "(any)" else picked
 
 
+def _scrape_gdrive_file_ids(folder_id: str):
+    import re
+    url  = f"https://drive.google.com/drive/folders/{folder_id}"
+    hdrs = {"User-Agent": "Mozilla/5.0"}
+    resp = requests.get(url, headers=hdrs, timeout=30)
+    resp.raise_for_status()
+    ids   = re.findall(r'"([a-zA-Z0-9_-]{33})"', resp.text)
+    names = re.findall(r'"([\w\-. ]+\.(?:csv|xlsx|xls))"', resp.text)
+    return list(zip(names, ids)) if names else []
+
+
 def download_gdrive_folder(folder_id: str, dest_dir: str, label: str, progress_bar):
+    import gdown
     os.makedirs(dest_dir, exist_ok=True)
 
-    # list files via Drive API v3 — works for public folders, no key needed
-    list_url = "https://www.googleapis.com/drive/v3/files"
-    list_params = {
-        "q": f"'{folder_id}' in parents and trashed=false",
-        "fields": "files(id,name,mimeType)",
-        "supportsAllDrives": "true",
-        "includeItemsFromAllDrives": "true",
-    }
-
     try:
-        resp = requests.get(list_url, params=list_params, timeout=30)
-        resp.raise_for_status()
-        files = resp.json().get("files", [])
-    except Exception as e:
-        # fallback to gdown if API listing fails
-        st.warning(f"Drive API listing failed for {label}: {e}. Trying gdown…")
-        try:
-            import gdown
-            gdown.download_folder(
-                f"https://drive.google.com/drive/folders/{folder_id}",
-                output=dest_dir, quiet=True, use_cookies=False, remaining_ok=True
+        file_pairs = _scrape_gdrive_file_ids(folder_id)
+    except Exception:
+        file_pairs = []
+
+    if file_pairs:
+        downloaded = 0
+        for i, (name, fid) in enumerate(file_pairs):
+            dest_path = os.path.join(dest_dir, name)
+            try:
+                gdown.download(f"https://drive.google.com/uc?id={fid}", dest_path, quiet=True, fuzzy=True)
+                downloaded += 1
+            except Exception as e:
+                st.warning(f"Skipped {name}: {e}")
+            progress_bar.progress(
+                (i + 1) / max(len(file_pairs), 1),
+                text=f"Downloading {label}: {name}"
             )
-        except Exception as e2:
-            st.error(f"Failed to download {label}: {e2}")
-            return 0
-        return len([f for f in os.listdir(dest_dir) if f.endswith((".csv", ".xlsx", ".xls"))])
+        return downloaded
 
-    target_files = [
-        f for f in files
-        if f["name"].endswith((".csv", ".xlsx", ".xls"))
-        or "spreadsheet" in f.get("mimeType", "")
-    ]
-
-    if not target_files:
-        st.warning(f"No CSV/Excel files found in {label} folder — check folder ID & permissions.")
+    # fallback: gdown folder download
+    try:
+        gdown.download_folder(
+            f"https://drive.google.com/drive/folders/{folder_id}",
+            output=dest_dir, quiet=True, use_cookies=False
+        )
+    except Exception as e:
+        st.error(f"Failed to download {label}: {e}")
         return 0
 
-    downloaded = 0
-    for i, file_info in enumerate(target_files):
-        dest_path    = os.path.join(dest_dir, file_info["name"])
-        download_url = f"https://drive.google.com/uc?export=download&id={file_info['id']}&confirm=t"
-        try:
-            with requests.get(download_url, stream=True, timeout=60) as r:
-                r.raise_for_status()
-                with open(dest_path, "wb") as fh:
-                    for chunk in r.iter_content(chunk_size=8192):
-                        fh.write(chunk)
-            downloaded += 1
-        except Exception as e:
-            st.warning(f"Skipped {file_info['name']}: {e}")
-
-        progress_bar.progress(
-            (i + 1) / max(len(target_files), 1),
-            text=f"Downloading {label}: {file_info['name']}"
-        )
-
-    return downloaded
+    return len([f for f in os.listdir(dest_dir) if f.endswith((".csv", ".xlsx", ".xls"))])
 
 
 # ── sidebar ────────────────────────────────────────────────────────────────────
