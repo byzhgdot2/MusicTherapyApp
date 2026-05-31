@@ -16,6 +16,25 @@ WINDOW_SAMPLES = 30 * SAMPLING_RATE
 STEP_SAMPLES   = 10 * SAMPLING_RATE
 
 
+def _read_file(path: str) -> pd.DataFrame:
+    """Read a CSV or Excel file transparently."""
+    if path.endswith(".xlsx") or path.endswith(".xls"):
+        return pd.read_excel(path)
+    return pd.read_csv(path)
+
+
+def _find_subject_file(directory: str, subject_num: int):
+    """
+    Return the full path to sub_N.csv or sub_N.xlsx in directory,
+    or None if neither exists.
+    """
+    for ext in (".csv", ".xlsx", ".xls"):
+        p = os.path.join(directory, f"sub_{subject_num}{ext}")
+        if os.path.isfile(p):
+            return p
+    return None
+
+
 class EmotionPredictor:
 
     feature_names = [
@@ -91,8 +110,14 @@ class EmotionPredictor:
 
         for sub in range(1, num_subjects + 1):
             try:
-                physio = pd.read_csv(os.path.join(physio_dir, f"sub_{sub}.csv"))
-                annot  = pd.read_csv(os.path.join(annot_dir,  f"sub_{sub}.csv"))
+                physio_path = _find_subject_file(physio_dir, sub)
+                annot_path  = _find_subject_file(annot_dir,  sub)
+
+                if physio_path is None or annot_path is None:
+                    continue
+
+                physio = _read_file(physio_path)
+                annot  = _read_file(annot_path)
 
                 ecg = physio["ecg"].values.astype(float)
                 eda = physio["gsr"].values.astype(float)
@@ -205,7 +230,7 @@ class MusicRecommender:
         return self.recommend(curr_v, curr_a, target_v, target_a, genre=genre, length=playlist_length, gradual=gradual)
 
     def recommend(self, curr_v, curr_a, target_v, target_a, genre=None, length=5, gradual=True):
-        curr_quad, curr_desc   = self.get_emotion_label(curr_v, curr_a)
+        curr_quad, curr_desc     = self.get_emotion_label(curr_v, curr_a)
         target_quad, target_desc = self.get_emotion_label(target_v, target_a)
 
         playlist, seen = [], set()
@@ -227,7 +252,7 @@ class MusicRecommender:
                     break
 
         return {
-            'current_emotion':  {'valence': curr_v,   'arousal': curr_a,   'quadrant': curr_quad,   'description': curr_desc},
+            'current_emotion':  {'valence': curr_v,    'arousal': curr_a,    'quadrant': curr_quad,    'description': curr_desc},
             'target_emotion':   {'valence': target_v,  'arousal': target_a,  'quadrant': target_quad,  'description': target_desc},
             'playlist': playlist[:length],
         }
@@ -249,7 +274,7 @@ class EmotionMusicSystem:
         return self.predictor.predict(ecg_data, eda_data)
 
     def get_emotion_label(self, valence, arousal):
-        return self.recommender.emotion_label(valence, arousal)
+        return self.recommender.get_emotion_label(valence, arousal)
 
 
 def _to_dict(series):
