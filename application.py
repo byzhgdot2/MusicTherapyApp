@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import os
 import tempfile
+import requests
 
 st.set_page_config(
     page_title="Emotion Aware Music Recommender",
@@ -31,15 +32,15 @@ for k, v in {
     if k not in st.session_state:
         st.session_state[k] = v
 
-# ── Google Drive folder IDs ────────────────────────────────────────────────────
 GDRIVE_ANNOT_FOLDER_ID  = "1WZfE0gnPkvgIHfsvdY_7PUDQ-r05oGjZ"
 GDRIVE_PHYSIO_FOLDER_ID = "1jqz4YcJcCpwLAP6PAfeGzrwNxqomfqis"
 
 QUAD_EMOJI = {"Q1": "😄", "Q2": "😠", "Q3": "😢", "Q4": "😌"}
 
+
 def emotion_label_str(desc, quad):
-    emoji = QUAD_EMOJI.get(quad, "🎵")
-    return f"{emoji} {desc}"
+    return f"{QUAD_EMOJI.get(quad, '🎵')} {desc}"
+
 
 def va_scatter(current_v, current_a, target_v, target_a, playlist=None):
     fig, ax = plt.subplots(figsize=(4.5, 4.5), facecolor="#16161f")
@@ -73,12 +74,14 @@ def va_scatter(current_v, current_a, target_v, target_a, playlist=None):
     plt.tight_layout(pad=.5)
     return fig
 
+
 def _get_field(song, candidates, fallback="Unknown"):
     for col in candidates:
         val = song.get(col, None)
         if val is not None and str(val).strip() and str(val).strip().lower() != "nan":
             return str(val).strip()
     return fallback
+
 
 def render_playlist(result):
     playlist = result.get("playlist", [])
@@ -103,11 +106,13 @@ def render_playlist(result):
             with col_dist:
                 st.caption(f"dist {dist:.3f}")
 
+
 def render_features(features: dict):
     cols = st.columns(4)
     for idx, (k, v) in enumerate(features.items()):
         with cols[idx % 4]:
             st.metric(label=k, value=f"{v:.3f}")
+
 
 def render_emotion_summary(result):
     ce = result["current_emotion"]
@@ -122,6 +127,7 @@ def render_emotion_summary(result):
         st.write(emotion_label_str(te["description"], te["quadrant"]))
         st.caption(f"V={te['valence']:.2f} · A={te['arousal']:.2f}")
 
+
 def genre_selector(genres, key_prefix):
     options = ["(any)"] + genres
     col_sel, col_txt = st.columns([2, 1])
@@ -135,40 +141,71 @@ def genre_selector(genres, key_prefix):
     return None if picked == "(any)" else picked
 
 
-# ── Google Drive download helper ───────────────────────────────────────────────
 def download_gdrive_folder(folder_id: str, dest_dir: str, label: str, progress_bar):
-    """
-    Download all files in a public Google Drive folder using gdown.
-    Returns the number of files downloaded.
-    """
-    try:
-        import gdown
-    except ImportError:
-        st.error("gdown not installed. Add `gdown` to requirements.txt.")
-        st.stop()
-
     os.makedirs(dest_dir, exist_ok=True)
 
-    # List files in folder via gdown
-    url = f"https://drive.google.com/drive/folders/{folder_id}"
+    # list files via Drive API v3 — works for public folders, no key needed
+    list_url = "https://www.googleapis.com/drive/v3/files"
+    list_params = {
+        "q": f"'{folder_id}' in parents and trashed=false",
+        "fields": "files(id,name,mimeType)",
+        "supportsAllDrives": "true",
+        "includeItemsFromAllDrives": "true",
+    }
+
     try:
-        # gdown.download_folder downloads everything into dest_dir
-        gdown.download_folder(url, output=dest_dir, quiet=True, use_cookies=False)
+        resp = requests.get(list_url, params=list_params, timeout=30)
+        resp.raise_for_status()
+        files = resp.json().get("files", [])
     except Exception as e:
-        st.error(f"Failed to download {label} from Google Drive: {e}")
+        # fallback to gdown if API listing fails
+        st.warning(f"Drive API listing failed for {label}: {e}. Trying gdown…")
+        try:
+            import gdown
+            gdown.download_folder(
+                f"https://drive.google.com/drive/folders/{folder_id}",
+                output=dest_dir, quiet=True, use_cookies=False, remaining_ok=True
+            )
+        except Exception as e2:
+            st.error(f"Failed to download {label}: {e2}")
+            return 0
+        return len([f for f in os.listdir(dest_dir) if f.endswith((".csv", ".xlsx", ".xls"))])
+
+    target_files = [
+        f for f in files
+        if f["name"].endswith((".csv", ".xlsx", ".xls"))
+        or "spreadsheet" in f.get("mimeType", "")
+    ]
+
+    if not target_files:
+        st.warning(f"No CSV/Excel files found in {label} folder — check folder ID & permissions.")
         return 0
 
-    files = [f for f in os.listdir(dest_dir)
-             if f.endswith((".csv", ".xlsx", ".xls"))]
-    return len(files)
+    downloaded = 0
+    for i, file_info in enumerate(target_files):
+        dest_path    = os.path.join(dest_dir, file_info["name"])
+        download_url = f"https://drive.google.com/uc?export=download&id={file_info['id']}&confirm=t"
+        try:
+            with requests.get(download_url, stream=True, timeout=60) as r:
+                r.raise_for_status()
+                with open(dest_path, "wb") as fh:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        fh.write(chunk)
+            downloaded += 1
+        except Exception as e:
+            st.warning(f"Skipped {file_info['name']}: {e}")
+
+        progress_bar.progress(
+            (i + 1) / max(len(target_files), 1),
+            text=f"Downloading {label}: {file_info['name']}"
+        )
+
+    return downloaded
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  SIDEBAR
-# ═══════════════════════════════════════════════════════════════════════════════
+# ── sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("### Setup")
-
     st.markdown("**Music Database (MuSe CSV)**")
     music_db_file = st.file_uploader(
         "Upload muse_dataset.csv", type=["csv"],
@@ -176,10 +213,8 @@ with st.sidebar:
     )
 
     st.divider()
-
     st.divider()
 
-    # ── Demo-only init ─────────────────────────────────────────────────────────
     st.caption("**Demo Mode** — loads the music database only. No training required.")
     if st.button("Initialize (Demo)", use_container_width=True, type="secondary"):
         if not music_db_file:
@@ -187,39 +222,34 @@ with st.sidebar:
         else:
             with st.spinner("Loading music database…"):
                 try:
-                    tmpdir = tempfile.mkdtemp()
+                    tmpdir  = tempfile.mkdtemp()
                     db_path = os.path.join(tmpdir, "muse_dataset.csv")
                     with open(db_path, "wb") as f:
                         f.write(music_db_file.getvalue())
-                    system = pl.EmotionMusicSystem(db_path)
-                    st.session_state.system = system
+                    st.session_state.system = pl.EmotionMusicSystem(db_path)
                     st.success("✓ Loaded — Demo Mode ready")
                 except Exception as e:
                     st.error(f"Failed to load music DB: {e}")
 
     st.divider()
 
-    # ── Full init (download + train) ───────────────────────────────────────────
-    st.caption("**Upload Mode** — downloads the CASE dataset and trains the emotion model. This may take several minutes.")
+    st.caption("**Upload Mode** — downloads the CASE dataset and trains the emotion model. May take several minutes.")
     if st.button("Initialize + Train (Upload Mode)", use_container_width=True, type="primary"):
         if not music_db_file:
             st.error("Upload muse_dataset.csv first.")
         else:
-            # ── Load music DB ──────────────────────────────────────────────
             with st.spinner("Loading music database…"):
                 try:
-                    tmpdir = tempfile.mkdtemp()
+                    tmpdir  = tempfile.mkdtemp()
                     db_path = os.path.join(tmpdir, "muse_dataset.csv")
                     with open(db_path, "wb") as f:
                         f.write(music_db_file.getvalue())
-                    system = pl.EmotionMusicSystem(db_path)
-                    st.session_state.system = system
+                    st.session_state.system = pl.EmotionMusicSystem(db_path)
                     st.success("✓ Loaded")
                 except Exception as e:
                     st.error(f"Failed to load music DB: {e}")
                     st.stop()
 
-            # ── Download CASE dataset from Google Drive ────────────────────
             if not st.session_state.dataset_ready:
                 base_tmp   = tempfile.mkdtemp()
                 physio_dir = os.path.join(base_tmp, "Physiological")
@@ -228,28 +258,22 @@ with st.sidebar:
                 st.info("Downloading CASE dataset from Google Drive…")
                 prog = st.progress(0, text="Downloading physiological files…")
 
-                n_physio = download_gdrive_folder(
-                    GDRIVE_PHYSIO_FOLDER_ID, physio_dir, "Physiological", prog
-                )
+                n_physio = download_gdrive_folder(GDRIVE_PHYSIO_FOLDER_ID, physio_dir, "Physiological", prog)
                 prog.progress(0.5, text="Downloading annotation files…")
-
-                n_annot = download_gdrive_folder(
-                    GDRIVE_ANNOT_FOLDER_ID, annot_dir, "Annotated", prog
-                )
+                n_annot  = download_gdrive_folder(GDRIVE_ANNOT_FOLDER_ID, annot_dir, "Annotated", prog)
                 prog.empty()
 
                 if n_physio == 0 or n_annot == 0:
                     st.error(
-                        f"Download incomplete — {n_physio} physio, {n_annot} annotation files found. "
-                        "Check that the Google Drive folders are shared publicly."
+                        f"Download incomplete — {n_physio} physio, {n_annot} annot files. "
+                        "Check Drive folders are shared publicly."
                     )
                 else:
                     st.session_state.physio_dir    = physio_dir
                     st.session_state.annot_dir     = annot_dir
                     st.session_state.dataset_ready = True
-                    st.success(f"✓ Downloaded {n_physio} physio, {n_annot} annotation files")
+                    st.success(f"✓ Downloaded {n_physio} physio, {n_annot} annot files")
 
-            # ── Train model ────────────────────────────────────────────────
             if st.session_state.dataset_ready:
                 prog2 = st.progress(0, text="Training model…")
                 try:
@@ -302,15 +326,12 @@ with st.sidebar:
     )
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  MAIN AREA
-# ═══════════════════════════════════════════════════════════════════════════════
+# ── main ───────────────────────────────────────────────────────────────────────
 st.title("Emotion Aware Music Recommender")
 st.caption("Physiological signal analysis → emotion prediction → personalized music recommendations")
 
 tab_upload, tab_demo = st.tabs(["Upload Signals", "Demo Mode"])
 
-# ─── TAB 1: Upload Signals ────────────────────────────────────────────────────
 with tab_upload:
     if not st.session_state.system:
         st.info("Configure and initialize the system in the sidebar first.")
@@ -321,8 +342,7 @@ with tab_upload:
         left, right = st.columns([1, 1], gap="large")
 
         with left:
-            uploaded = st.file_uploader("Upload signal CSV", type=["csv"],
-                                        label_visibility="collapsed")
+            uploaded   = st.file_uploader("Upload signal CSV", type=["csv"], label_visibility="collapsed")
             subject_id = st.number_input(
                 "Subject ID *(optional — used for subject-specific normalization)*",
                 min_value=1, max_value=30, value=1, step=1,
@@ -344,7 +364,7 @@ with tab_upload:
         with right:
             st.markdown("**Target Emotion**")
             genres = st.session_state.system.recommender.get_genres()
-            genre = genre_selector(genres, key_prefix="upload")
+            genre  = genre_selector(genres, key_prefix="upload")
 
             va1, va2 = st.columns(2)
             with va1:
@@ -396,11 +416,8 @@ with tab_upload:
                         else:
                             curr_v, curr_a, feats = st.session_state.system.predictor.predict(ecg, gsr)
                         rec = st.session_state.system.recommender.recommend_playlist(
-                            curr_v, curr_a,
-                            target_v, target_a,
-                            genre=genre,
-                            playlist_length=playlist_len,
-                            gradual=gradual,
+                            curr_v, curr_a, target_v, target_a,
+                            genre=genre, playlist_length=playlist_len, gradual=gradual,
                         )
                         rec["extracted_features"] = feats
                         st.session_state.result = rec
@@ -427,7 +444,6 @@ with tab_upload:
             with res_right:
                 render_playlist(result)
 
-# ─── TAB 2: Demo Mode ─────────────────────────────────────────────────────────
 with tab_demo:
     st.markdown("### Demo Mode")
     st.caption("Set your current and target emotions, pick a genre, and get a playlist — no signal upload needed.")
@@ -450,7 +466,7 @@ with tab_demo:
         with d_col2:
             st.markdown("**Target Emotion**")
             genres_d = st.session_state.system.recommender.get_genres()
-            genre_d = genre_selector(genres_d, key_prefix="demo")
+            genre_d  = genre_selector(genres_d, key_prefix="demo")
 
             tv1, tv2 = st.columns(2)
             with tv1:
@@ -466,11 +482,8 @@ with tab_demo:
             with st.spinner("Building playlist…"):
                 try:
                     demo_result = st.session_state.system.recommender.recommend_playlist(
-                        demo_curr_v, demo_curr_a,
-                        demo_tgt_v, demo_tgt_a,
-                        genre=genre_d,
-                        playlist_length=demo_len,
-                        gradual=True,
+                        demo_curr_v, demo_curr_a, demo_tgt_v, demo_tgt_a,
+                        genre=genre_d, playlist_length=demo_len, gradual=True,
                     )
                     demo_result["extracted_features"] = {}
                     st.session_state.demo_result = demo_result
