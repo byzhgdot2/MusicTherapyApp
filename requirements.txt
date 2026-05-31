@@ -2,5 +2,7 @@ streamlit
 numpy
 pandas
 matplotlib
-neurokit2
 scikit-learn
+neurokit2
+openpyxl
+gdown
