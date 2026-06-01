@@ -7,7 +7,6 @@ import os
 import tempfile
 import requests
 import joblib
-import threading
 
 # persistent dirs survive Streamlit reruns/reconnects
 PERSIST_DIR  = os.path.join(tempfile.gettempdir(), "wbdmr_cache")
@@ -31,6 +30,7 @@ except ModuleNotFoundError:
     st.error("pipeline.py not found alongside app.py.")
     st.stop()
 
+# ── session state init ─────────────────────────────────────────────────────────
 for k, v in {
     "system": None,
     "trained": False,
@@ -43,8 +43,8 @@ for k, v in {
     if k not in st.session_state:
         st.session_state[k] = v
 
-# auto-restore from disk on every refresh
-TRAIN_LOG = os.path.join(PERSIST_DIR, "train_status.txt")
+# ── auto-restore from disk on every page load ──────────────────────────────────
+# This is safe because it only reads from disk, never from a background thread.
 if st.session_state.system is None and os.path.isfile(DB_PATH):
     try:
         _sys = pl.EmotionMusicSystem(DB_PATH)
@@ -53,7 +53,7 @@ if st.session_state.system is None and os.path.isfile(DB_PATH):
         pass
 
 if st.session_state.system is not None:
-    # restore model if available
+    # Restore trained model from disk if present but not yet in session
     if not st.session_state.trained and os.path.isfile(MODEL_PATH):
         try:
             st.session_state.system.predictor = joblib.load(MODEL_PATH)
@@ -61,10 +61,10 @@ if st.session_state.system is not None:
             st.session_state.trained          = True
         except Exception:
             pass
-    # restore dataset flag
+    # Restore dataset-ready flag
     if not st.session_state.dataset_ready:
-        n_physio = len([f for f in os.listdir(PHYSIO_DIR) if f.endswith((".csv",".xlsx",".xls"))])
-        n_annot  = len([f for f in os.listdir(ANNOT_DIR)  if f.endswith((".csv",".xlsx",".xls"))])
+        n_physio = len([f for f in os.listdir(PHYSIO_DIR) if f.endswith((".csv", ".xlsx", ".xls"))])
+        n_annot  = len([f for f in os.listdir(ANNOT_DIR)  if f.endswith((".csv", ".xlsx", ".xls"))])
         if n_physio > 0 and n_annot > 0:
             st.session_state.dataset_ready = True
 
@@ -194,7 +194,7 @@ def _scrape_gdrive_file_ids(folder_id: str):
     return pairs
 
 
-def download_gdrive_folder(folder_id: str, dest_dir: str, label: str, progress_bar):
+def download_gdrive_folder(folder_id: str, dest_dir: str, label: str, status_container):
     import gdown, inspect
     os.makedirs(dest_dir, exist_ok=True)
 
@@ -204,21 +204,17 @@ def download_gdrive_folder(folder_id: str, dest_dir: str, label: str, progress_b
         file_pairs = []
 
     if file_pairs:
-        supported  = inspect.signature(gdown.download).parameters
-        dl_kwargs  = {"quiet": True}
+        supported = inspect.signature(gdown.download).parameters
+        dl_kwargs = {"quiet": True}
         if "fuzzy" in supported:
             dl_kwargs["fuzzy"] = True
 
-        # hardcoded overrides for files that scrape with wrong IDs
-        HARDCODED_PHYSIO = {
-            "sub_1.csv": "1m1YD4cXtS3SYwK5JZJv40jjH0DjQb3jK",
-        }
-        HARDCODED_ANNOT = {
-            "sub_1.csv": "1RR59E10m0fhMQSur4pkDXqL_wTTjc29t",
-        }
+        HARDCODED_PHYSIO = {"sub_1.csv": "1m1YD4cXtS3SYwK5JZJv40jjH0DjQb3jK"}
+        HARDCODED_ANNOT  = {"sub_1.csv": "1RR59E10m0fhMQSur4pkDXqL_wTTjc29t"}
         HARDCODED = HARDCODED_PHYSIO if label == "Physiological" else HARDCODED_ANNOT
 
         downloaded = 0
+        prog = status_container.progress(0, text=f"Downloading {label} files…")
         for i, (name, fid) in enumerate(file_pairs):
             dest_path = os.path.join(dest_dir, name)
             fid       = HARDCODED.get(name, fid)
@@ -226,11 +222,10 @@ def download_gdrive_folder(folder_id: str, dest_dir: str, label: str, progress_b
                 gdown.download(f"https://drive.google.com/uc?id={fid}", dest_path, **dl_kwargs)
                 downloaded += 1
             except Exception as e:
-                st.warning(f"Skipped {name}: {e}")
-            progress_bar.progress(
-                (i + 1) / max(len(file_pairs), 1),
-                text=f"Downloading {label}: {name}"
-            )
+                status_container.warning(f"Skipped {name}: {e}")
+            prog.progress((i + 1) / max(len(file_pairs), 1),
+                          text=f"Downloading {label}: {name}")
+        prog.empty()
         return downloaded
 
     # fallback: gdown folder download
@@ -240,7 +235,7 @@ def download_gdrive_folder(folder_id: str, dest_dir: str, label: str, progress_b
             output=dest_dir, quiet=True, use_cookies=False
         )
     except Exception as e:
-        st.error(f"Failed to download {label}: {e}")
+        status_container.error(f"Failed to download {label}: {e}")
         return 0
 
     return len([f for f in os.listdir(dest_dir) if f.endswith((".csv", ".xlsx", ".xls"))])
@@ -278,6 +273,7 @@ with st.sidebar:
         if not music_db_file:
             st.error("Upload muse_dataset.csv first.")
         else:
+            # ── Step 1: load music DB ──────────────────────────────────────────
             with st.spinner("Loading music database…"):
                 try:
                     with open(DB_PATH, "wb") as f:
@@ -288,64 +284,61 @@ with st.sidebar:
                     st.error(f"Failed to load music DB: {e}")
                     st.stop()
 
+            # ── Step 2: download CASE dataset (skip if already on disk) ────────
             if not st.session_state.dataset_ready:
                 st.info("Downloading CASE dataset from Google Drive…")
-                prog = st.progress(0, text="Downloading physiological files…")
+                # Use a plain container so download helpers can write into it
+                dl_container = st.container()
 
-                n_physio = download_gdrive_folder(GDRIVE_PHYSIO_FOLDER_ID, PHYSIO_DIR, "Physiological", prog)
-                prog.progress(0.5, text="Downloading annotation files…")
-                n_annot  = download_gdrive_folder(GDRIVE_ANNOT_FOLDER_ID, ANNOT_DIR, "Annotated", prog)
-                prog.empty()
-
-                if n_physio == 0 or n_annot == 0:
-                    st.error(
-                        f"Download incomplete — {n_physio} physio, {n_annot} annot files. "
-                        "Check Drive folders are shared publicly."
+                with st.status("Downloading physiological files…", expanded=True) as dl_status:
+                    n_physio = download_gdrive_folder(
+                        GDRIVE_PHYSIO_FOLDER_ID, PHYSIO_DIR, "Physiological", dl_container
                     )
-                else:
-                    st.session_state.dataset_ready = True
-                    st.success(f"✓ Downloaded {n_physio} physio, {n_annot} annot files")
+                    dl_status.update(label=f"Downloading annotation files…")
+                    n_annot = download_gdrive_folder(
+                        GDRIVE_ANNOT_FOLDER_ID, ANNOT_DIR, "Annotated", dl_container
+                    )
+                    if n_physio == 0 or n_annot == 0:
+                        dl_status.update(label="Download incomplete", state="error")
+                        st.error(
+                            f"Download incomplete — {n_physio} physio, {n_annot} annot files. "
+                            "Check Drive folders are shared publicly."
+                        )
+                        st.stop()
+                    else:
+                        st.session_state.dataset_ready = True
+                        dl_status.update(
+                            label=f"✓ Downloaded {n_physio} physio, {n_annot} annot files",
+                            state="complete", expanded=False
+                        )
 
-            if st.session_state.dataset_ready and not st.session_state.trained:
-                # clear stale log from previous broken runs
-                if os.path.isfile(TRAIN_LOG):
-                    with open(TRAIN_LOG) as _f:
-                        _stale = _f.read().strip()
-                    if _stale.startswith("error:") or _stale == "":
-                        os.remove(TRAIN_LOG)
-
-                def _run_training():
-                    # fully self-contained — no session_state, loads everything from disk
+            # ── Step 3: train (blocking — keeps the connection alive via st.status) ──
+            if not st.session_state.trained:
+                with st.status("Training emotion model…", expanded=True) as train_status:
                     try:
-                        with open(TRAIN_LOG, "w") as _f:
-                            _f.write("running")
-                        _sys = pl.EmotionMusicSystem(DB_PATH)
-                        n    = _sys.train_model(PHYSIO_DIR, ANNOT_DIR)
-                        joblib.dump(_sys.predictor, MODEL_PATH)
-                        with open(TRAIN_LOG, "w") as _f:
-                            _f.write(f"done:{n}")
-                    except Exception as _e:
-                        with open(TRAIN_LOG, "w") as _f:
-                            _f.write(f"error:{_e}")
+                        train_log = st.empty()
+                        completed_windows = [0]  # mutable container for callback
 
-                log_status = ""
-                if os.path.isfile(TRAIN_LOG):
-                    with open(TRAIN_LOG) as f:
-                        log_status = f.read().strip()
+                        def _progress_cb(frac):
+                            pct = int(frac * 100)
+                            train_log.caption(f"Training… {pct}%")
 
-                if log_status.startswith("done:"):
-                    n = int(log_status.split(":")[1])
-                    st.session_state.trained = True
-                    st.success(f"✓ Trained on {n} windows — refresh to use the model")
-                elif log_status.startswith("error:"):
-                    st.error(f"Training error: {log_status[6:]}")
-                elif log_status == "running":
-                    st.info("Training in progress — refresh in a minute to check status.")
-                else:
-                    # kick off background thread
-                    t = threading.Thread(target=_run_training, daemon=True)
-                    t.start()
-                    st.info("Training started in background — refresh in ~1 min to check progress.")
+                        n_windows = st.session_state.system.train_model(
+                            PHYSIO_DIR, ANNOT_DIR, progress_cb=_progress_cb
+                        )
+
+                        # Persist model to disk so future page reloads skip training
+                        joblib.dump(st.session_state.system.predictor, MODEL_PATH)
+                        st.session_state.trained = True
+
+                        train_log.empty()
+                        train_status.update(
+                            label=f"✓ Trained on {n_windows} windows",
+                            state="complete", expanded=False
+                        )
+                    except Exception as e:
+                        train_status.update(label="Training failed", state="error")
+                        st.error(f"Training error: {e}")
 
     st.divider()
 
