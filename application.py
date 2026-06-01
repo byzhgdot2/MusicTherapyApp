@@ -43,21 +43,30 @@ for k, v in {
     if k not in st.session_state:
         st.session_state[k] = v
 
-# auto-restore from disk on reconnect
+# auto-restore from disk on every refresh
+TRAIN_LOG = os.path.join(PERSIST_DIR, "train_status.txt")
 if st.session_state.system is None and os.path.isfile(DB_PATH):
     try:
         _sys = pl.EmotionMusicSystem(DB_PATH)
-        if os.path.isfile(MODEL_PATH):
-            _sys.predictor = joblib.load(MODEL_PATH)
-            _sys.trained   = True
-            st.session_state.trained = True
         st.session_state.system = _sys
+    except Exception:
+        pass
+
+if st.session_state.system is not None:
+    # restore model if available
+    if not st.session_state.trained and os.path.isfile(MODEL_PATH):
+        try:
+            st.session_state.system.predictor = joblib.load(MODEL_PATH)
+            st.session_state.system.trained   = True
+            st.session_state.trained          = True
+        except Exception:
+            pass
+    # restore dataset flag
+    if not st.session_state.dataset_ready:
         n_physio = len([f for f in os.listdir(PHYSIO_DIR) if f.endswith((".csv",".xlsx",".xls"))])
         n_annot  = len([f for f in os.listdir(ANNOT_DIR)  if f.endswith((".csv",".xlsx",".xls"))])
         if n_physio > 0 and n_annot > 0:
             st.session_state.dataset_ready = True
-    except Exception:
-        pass
 
 GDRIVE_ANNOT_FOLDER_ID  = "1WZfE0gnPkvgIHfsvdY_7PUDQ-r05oGjZ"
 GDRIVE_PHYSIO_FOLDER_ID = "1jqz4YcJcCpwLAP6PAfeGzrwNxqomfqis"
@@ -298,21 +307,19 @@ with st.sidebar:
                     st.success(f"✓ Downloaded {n_physio} physio, {n_annot} annot files")
 
             if st.session_state.dataset_ready and not st.session_state.trained:
-                TRAIN_LOG = os.path.join(PERSIST_DIR, "train_status.txt")
-
                 def _run_training():
+                    # fully self-contained — no session_state, loads everything from disk
                     try:
-                        with open(TRAIN_LOG, "w") as f:
-                            f.write("running")
-                        n = st.session_state.system.train_model(
-                            PHYSIO_DIR, ANNOT_DIR,
-                        )
-                        joblib.dump(st.session_state.system.predictor, MODEL_PATH)
-                        with open(TRAIN_LOG, "w") as f:
-                            f.write(f"done:{n}")
-                    except Exception as e:
-                        with open(TRAIN_LOG, "w") as f:
-                            f.write(f"error:{e}")
+                        with open(TRAIN_LOG, "w") as _f:
+                            _f.write("running")
+                        _sys = pl.EmotionMusicSystem(DB_PATH)
+                        n    = _sys.train_model(PHYSIO_DIR, ANNOT_DIR)
+                        joblib.dump(_sys.predictor, MODEL_PATH)
+                        with open(TRAIN_LOG, "w") as _f:
+                            _f.write(f"done:{n}")
+                    except Exception as _e:
+                        with open(TRAIN_LOG, "w") as _f:
+                            _f.write(f"error:{_e}")
 
                 log_status = ""
                 if os.path.isfile(TRAIN_LOG):
