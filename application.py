@@ -328,11 +328,8 @@ with st.sidebar:
 
                 if log_status.startswith("done:"):
                     n = int(log_status.split(":")[1])
-                    if os.path.isfile(MODEL_PATH):
-                        st.session_state.system.predictor = joblib.load(MODEL_PATH)
-                        st.session_state.system.trained   = True
                     st.session_state.trained = True
-                    st.success(f"✓ Trained on {n} windows")
+                    st.success(f"✓ Trained on {n} windows — refresh to use the model")
                 elif log_status.startswith("error:"):
                     st.error(f"Training error: {log_status[6:]}")
                 elif log_status == "running":
