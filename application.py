@@ -6,6 +6,16 @@ import matplotlib.patches as mpatches
 import os
 import tempfile
 import requests
+import joblib
+
+# persistent dirs survive Streamlit reruns/reconnects
+PERSIST_DIR  = os.path.join(tempfile.gettempdir(), "wbdmr_cache")
+PHYSIO_DIR   = os.path.join(PERSIST_DIR, "Physiological")
+ANNOT_DIR    = os.path.join(PERSIST_DIR, "Annotated")
+MODEL_PATH   = os.path.join(PERSIST_DIR, "model.joblib")
+DB_PATH      = os.path.join(PERSIST_DIR, "muse_dataset.csv")
+os.makedirs(PHYSIO_DIR, exist_ok=True)
+os.makedirs(ANNOT_DIR,  exist_ok=True)
 
 st.set_page_config(
     page_title="Emotion Aware Music Recommender",
@@ -26,11 +36,27 @@ for k, v in {
     "result": None,
     "demo_result": None,
     "dataset_ready": False,
-    "physio_dir": None,
-    "annot_dir": None,
+    "physio_dir": PHYSIO_DIR,
+    "annot_dir":  ANNOT_DIR,
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
+
+# auto-restore from disk on reconnect
+if st.session_state.system is None and os.path.isfile(DB_PATH):
+    try:
+        _sys = pl.EmotionMusicSystem(DB_PATH)
+        if os.path.isfile(MODEL_PATH):
+            _sys.predictor = joblib.load(MODEL_PATH)
+            _sys.trained   = True
+            st.session_state.trained = True
+        st.session_state.system = _sys
+        n_physio = len([f for f in os.listdir(PHYSIO_DIR) if f.endswith((".csv",".xlsx",".xls"))])
+        n_annot  = len([f for f in os.listdir(ANNOT_DIR)  if f.endswith((".csv",".xlsx",".xls"))])
+        if n_physio > 0 and n_annot > 0:
+            st.session_state.dataset_ready = True
+    except Exception:
+        pass
 
 GDRIVE_ANNOT_FOLDER_ID  = "1WZfE0gnPkvgIHfsvdY_7PUDQ-r05oGjZ"
 GDRIVE_PHYSIO_FOLDER_ID = "1jqz4YcJcCpwLAP6PAfeGzrwNxqomfqis"
@@ -173,9 +199,19 @@ def download_gdrive_folder(folder_id: str, dest_dir: str, label: str, progress_b
         if "fuzzy" in supported:
             dl_kwargs["fuzzy"] = True
 
+        # hardcoded overrides for files that scrape with wrong IDs
+        HARDCODED_PHYSIO = {
+            "sub_1.csv": "1m1YD4cXtS3SYwK5JZJv40jjH0DjQb3jK",
+        }
+        HARDCODED_ANNOT = {
+            "sub_1.csv": "1RR59E10m0fhMQSur4pkDXqL_wTTjc29t",
+        }
+        HARDCODED = HARDCODED_PHYSIO if label == "Physiological" else HARDCODED_ANNOT
+
         downloaded = 0
         for i, (name, fid) in enumerate(file_pairs):
             dest_path = os.path.join(dest_dir, name)
+            fid       = HARDCODED.get(name, fid)
             try:
                 gdown.download(f"https://drive.google.com/uc?id={fid}", dest_path, **dl_kwargs)
                 downloaded += 1
@@ -218,11 +254,9 @@ with st.sidebar:
         else:
             with st.spinner("Loading music database…"):
                 try:
-                    tmpdir  = tempfile.mkdtemp()
-                    db_path = os.path.join(tmpdir, "muse_dataset.csv")
-                    with open(db_path, "wb") as f:
+                    with open(DB_PATH, "wb") as f:
                         f.write(music_db_file.getvalue())
-                    st.session_state.system = pl.EmotionMusicSystem(db_path)
+                    st.session_state.system = pl.EmotionMusicSystem(DB_PATH)
                     st.success("✓ Loaded — Demo Mode ready")
                 except Exception as e:
                     st.error(f"Failed to load music DB: {e}")
@@ -236,27 +270,21 @@ with st.sidebar:
         else:
             with st.spinner("Loading music database…"):
                 try:
-                    tmpdir  = tempfile.mkdtemp()
-                    db_path = os.path.join(tmpdir, "muse_dataset.csv")
-                    with open(db_path, "wb") as f:
+                    with open(DB_PATH, "wb") as f:
                         f.write(music_db_file.getvalue())
-                    st.session_state.system = pl.EmotionMusicSystem(db_path)
+                    st.session_state.system = pl.EmotionMusicSystem(DB_PATH)
                     st.success("✓ Loaded")
                 except Exception as e:
                     st.error(f"Failed to load music DB: {e}")
                     st.stop()
 
             if not st.session_state.dataset_ready:
-                base_tmp   = tempfile.mkdtemp()
-                physio_dir = os.path.join(base_tmp, "Physiological")
-                annot_dir  = os.path.join(base_tmp, "Annotated")
-
                 st.info("Downloading CASE dataset from Google Drive…")
                 prog = st.progress(0, text="Downloading physiological files…")
 
-                n_physio = download_gdrive_folder(GDRIVE_PHYSIO_FOLDER_ID, physio_dir, "Physiological", prog)
+                n_physio = download_gdrive_folder(GDRIVE_PHYSIO_FOLDER_ID, PHYSIO_DIR, "Physiological", prog)
                 prog.progress(0.5, text="Downloading annotation files…")
-                n_annot  = download_gdrive_folder(GDRIVE_ANNOT_FOLDER_ID, annot_dir, "Annotated", prog)
+                n_annot  = download_gdrive_folder(GDRIVE_ANNOT_FOLDER_ID, ANNOT_DIR, "Annotated", prog)
                 prog.empty()
 
                 if n_physio == 0 or n_annot == 0:
@@ -265,8 +293,6 @@ with st.sidebar:
                         "Check Drive folders are shared publicly."
                     )
                 else:
-                    st.session_state.physio_dir    = physio_dir
-                    st.session_state.annot_dir     = annot_dir
                     st.session_state.dataset_ready = True
                     st.success(f"✓ Downloaded {n_physio} physio, {n_annot} annot files")
 
@@ -274,10 +300,10 @@ with st.sidebar:
                 prog2 = st.progress(0, text="Training model…")
                 try:
                     n = st.session_state.system.train_model(
-                        st.session_state.physio_dir,
-                        st.session_state.annot_dir,
+                        PHYSIO_DIR, ANNOT_DIR,
                         progress_cb=lambda p: prog2.progress(p, text=f"Training… {int(p*100)}%")
                     )
+                    joblib.dump(st.session_state.system.predictor, MODEL_PATH)
                     prog2.empty()
                     st.session_state.trained = True
                     st.success(f"✓ Trained on {n} windows")
