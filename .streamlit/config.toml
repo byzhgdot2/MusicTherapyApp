@@ -1,2 +1,6 @@
 [server]
-maxUploadSize = 2000
+maxUploadSize = 200
+headless = true
+
+[browser]
+gatherUsageStats = false
