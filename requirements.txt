@@ -6,3 +6,4 @@ scikit-learn
 neurokit2
 openpyxl
 gdown
+joblib
