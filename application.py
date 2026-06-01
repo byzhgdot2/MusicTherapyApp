@@ -4,18 +4,22 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import os
+import time
 import tempfile
 import requests
 import joblib
 import threading
 
 # persistent dirs survive Streamlit reruns/reconnects
-PERSIST_DIR  = os.path.join(tempfile.gettempdir(), "wbdmr_cache")
-PHYSIO_DIR   = os.path.join(PERSIST_DIR, "Physiological")
-ANNOT_DIR    = os.path.join(PERSIST_DIR, "Annotated")
-MODEL_PATH   = os.path.join(PERSIST_DIR, "model.joblib")
-DB_PATH      = os.path.join(PERSIST_DIR, "muse_dataset.csv")
-TRAIN_LOG    = os.path.join(PERSIST_DIR, "train_status.txt")
+PERSIST_DIR   = os.path.join(tempfile.gettempdir(), "wbdmr_cache")
+PHYSIO_DIR    = os.path.join(PERSIST_DIR, "Physiological")
+ANNOT_DIR     = os.path.join(PERSIST_DIR, "Annotated")
+MODEL_PATH    = os.path.join(PERSIST_DIR, "model.joblib")
+DB_PATH       = os.path.join(PERSIST_DIR, "muse_dataset.csv")
+TRAIN_LOG     = os.path.join(PERSIST_DIR, "train_status.txt")     # running / done:N / error:MSG
+TRAIN_PROG    = os.path.join(PERSIST_DIR, "train_progress.txt")   # float 0..1 heartbeat
+TRAIN_START   = os.path.join(PERSIST_DIR, "train_started.txt")    # epoch when run began
+POLL_SECS     = 2
 os.makedirs(PHYSIO_DIR, exist_ok=True)
 os.makedirs(ANNOT_DIR,  exist_ok=True)
 
@@ -47,15 +51,14 @@ for k, v in {
 # auto-restore from disk on every refresh
 if st.session_state.system is None and os.path.isfile(DB_PATH):
     try:
-        _sys = pl.EmotionMusicSystem(DB_PATH)
-        st.session_state.system = _sys
+        st.session_state.system = pl.EmotionMusicSystem(DB_PATH)
     except Exception:
         pass
 
 if st.session_state.system is not None:
-    # restore model if available — this is the real recovery path: once the
-    # background thread dumps model.joblib, any later rerun picks it up,
-    # independent of session_state or the status log.
+    # restore model if available — the real recovery path: once the background
+    # thread dumps model.joblib, any later rerun picks it up, independent of
+    # session_state or the status log.
     if not st.session_state.trained and os.path.isfile(MODEL_PATH):
         try:
             st.session_state.system.predictor = joblib.load(MODEL_PATH)
@@ -74,6 +77,71 @@ GDRIVE_ANNOT_FOLDER_ID  = "1WZfE0gnPkvgIHfsvdY_7PUDQ-r05oGjZ"
 GDRIVE_PHYSIO_FOLDER_ID = "1jqz4YcJcCpwLAP6PAfeGzrwNxqomfqis"
 
 QUAD_EMOJI = {"Q1": "😄", "Q2": "😠", "Q3": "😢", "Q4": "😌"}
+
+
+# ── training status helpers (file-based, thread-safe) ───────────────────────────
+def _read_text(path):
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except Exception:
+        return ""
+
+
+def _read_train_log():
+    return _read_text(TRAIN_LOG)
+
+
+def _read_progress():
+    try:
+        return max(0.0, min(1.0, float(_read_text(TRAIN_PROG))))
+    except Exception:
+        return 0.0
+
+
+def _read_start_time():
+    try:
+        return float(_read_text(TRAIN_START))
+    except Exception:
+        return None
+
+
+def _reset_training_files():
+    for p in (TRAIN_LOG, TRAIN_PROG, TRAIN_START):
+        if os.path.isfile(p):
+            try:
+                os.remove(p)
+            except Exception:
+                pass
+
+
+def _train_progress_cb(frac):
+    """Called by pipeline.train() ~once per subject + once at the end.
+    Writing the fraction to disk doubles as a heartbeat: a value that keeps
+    advancing proves the background run is still alive."""
+    try:
+        with open(TRAIN_PROG, "w") as f:
+            f.write(str(float(frac)))
+    except Exception:
+        pass
+
+
+def _run_training():
+    """Fully self-contained — NO st.session_state access (would raise outside a
+    ScriptRunContext). Loads from disk, reports progress via TRAIN_PROG, and
+    writes the terminal state to TRAIN_LOG. The main thread writes 'running'
+    BEFORE this starts, so a duplicate click can't spawn a second trainer."""
+    try:
+        _sys = pl.EmotionMusicSystem(DB_PATH)
+        n    = _sys.train_model(PHYSIO_DIR, ANNOT_DIR, progress_cb=_train_progress_cb)
+        joblib.dump(_sys.predictor, MODEL_PATH)
+        with open(TRAIN_PROG, "w") as f:
+            f.write("1.0")
+        with open(TRAIN_LOG, "w") as f:
+            f.write(f"done:{n}")
+    except Exception as _e:
+        with open(TRAIN_LOG, "w") as f:
+            f.write(f"error:{_e}")
 
 
 def emotion_label_str(desc, quad):
@@ -248,28 +316,8 @@ def download_gdrive_folder(folder_id: str, dest_dir: str, label: str, progress_b
     return len([f for f in os.listdir(dest_dir) if f.endswith((".csv", ".xlsx", ".xls"))])
 
 
-def _run_training():
-    """Fully self-contained — no session_state access (would raise outside a
-    ScriptRunContext). Loads everything from disk and reports via TRAIN_LOG.
-    Note: the main thread writes 'running' BEFORE this starts, to close the
-    spawn race; here we only write the terminal 'done'/'error' status."""
-    try:
-        _sys = pl.EmotionMusicSystem(DB_PATH)
-        n    = _sys.train_model(PHYSIO_DIR, ANNOT_DIR)
-        joblib.dump(_sys.predictor, MODEL_PATH)
-        with open(TRAIN_LOG, "w") as _f:
-            _f.write(f"done:{n}")
-    except Exception as _e:
-        with open(TRAIN_LOG, "w") as _f:
-            _f.write(f"error:{_e}")
-
-
-def _read_train_log():
-    if os.path.isfile(TRAIN_LOG):
-        with open(TRAIN_LOG) as f:
-            return f.read().strip()
-    return ""
-
+# tracks whether a background training run is live this render (drives auto-poll)
+training_active = False
 
 # ── sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -331,13 +379,12 @@ with st.sidebar:
                     st.session_state.dataset_ready = True
                     st.success(f"✓ Downloaded {n_physio} physio, {n_annot} annot files")
 
-            # ── kick off training (status display lives outside this block) ──
+            # ── kick off training (live status is rendered below, not here) ──
             if st.session_state.dataset_ready and not st.session_state.trained:
-                # clear stale log from previous broken/aborted runs
                 _stale = _read_train_log()
+                # clear leftover error/empty state from a previous run
                 if _stale.startswith("error:") or _stale == "":
-                    if os.path.isfile(TRAIN_LOG):
-                        os.remove(TRAIN_LOG)
+                    _reset_training_files()
                     _stale = ""
 
                 if _stale == "running":
@@ -345,36 +392,49 @@ with st.sidebar:
                 elif _stale.startswith("done:"):
                     st.success("Training already complete — restoring on next refresh.")
                 else:
-                    # Write 'running' on the MAIN thread BEFORE spawning, so a
-                    # second click can't slip past and launch a duplicate thread.
-                    with open(TRAIN_LOG, "w") as _f:
-                        _f.write("running")
+                    # Write 'running' + start time on the MAIN thread BEFORE
+                    # spawning, so a second click can't launch a duplicate.
+                    with open(TRAIN_START, "w") as f:
+                        f.write(str(time.time()))
+                    with open(TRAIN_PROG, "w") as f:
+                        f.write("0.0")
+                    with open(TRAIN_LOG, "w") as f:
+                        f.write("running")
                     threading.Thread(target=_run_training, daemon=True).start()
-                    st.info("Training started in background — status updates below on refresh.")
+                    st.info("Training started — progress updates automatically below.")
 
     st.divider()
 
-    # ── always-on training status (survives refresh without re-clicking) ──
-    # Runs on every rerun, independent of the button, so a plain page refresh
-    # reports progress and never gets blocked by a lost file upload.
+    # ── live training status (auto-updates via the poll at the bottom) ──────────
     if not st.session_state.trained:
         _status = _read_train_log()
         if _status == "running":
-            st.info("⏳ Training in progress — refresh in ~1 min to check.")
-            if st.button("↻ Refresh status", use_container_width=True, key="refresh_running"):
+            training_active = True
+            frac    = _read_progress()
+            started = _read_start_time()
+            elapsed = int(time.time() - started) if started else 0
+            phase   = "fitting model…" if frac >= 0.8 else "extracting features…"
+            st.progress(frac, text=f"⏳ {int(frac*100)}% · {phase} · {elapsed}s elapsed")
+            st.caption("Updates every couple seconds — leave this tab open.")
+            b1, b2 = st.columns(2)
+            if b1.button("↻ Refresh", use_container_width=True, key="tr_refresh"):
                 st.rerun()
+            if b2.button("✖ Reset", use_container_width=True, key="tr_reset"):
+                _reset_training_files()
+                st.rerun()
+            if elapsed > 1200:
+                st.warning("This is taking unusually long — the run may have stalled. "
+                           "Use Reset, then re-run Initialize + Train.")
         elif _status.startswith("done:"):
-            # Model file should exist now; nudge a rerun so the top-of-file
-            # auto-restore block can load it into the live session.
             n = _status.split(":", 1)[1]
-            st.success(f"✓ Trained on {n} windows — restoring model…")
-            if st.button("↻ Load model", use_container_width=True, key="refresh_done"):
+            st.success(f"✓ Trained on {n} windows — loading model…")
+            st.progress(1.0)
+            if st.button("↻ Load model now", use_container_width=True, key="tr_load"):
                 st.rerun()
         elif _status.startswith("error:"):
             st.error(f"Training failed: {_status[6:]}")
-            if st.button("Clear error & retry", use_container_width=True, key="clear_error"):
-                if os.path.isfile(TRAIN_LOG):
-                    os.remove(TRAIN_LOG)
+            if st.button("Clear error & retry", use_container_width=True, key="tr_clear"):
+                _reset_training_files()
                 st.rerun()
 
     st.divider()
@@ -594,3 +654,13 @@ with tab_demo:
                 st.pyplot(fig3, use_container_width=False)
             with dr2:
                 render_playlist(dr)
+
+
+# ── auto-poll while a background training run is active ─────────────────────────
+# Rendered last, after the whole page is drawn, so the UI stays interactive in
+# the gaps. Every couple seconds we re-read the progress file so the bar advances
+# and the 'done' state is picked up without a manual refresh. This also keeps the
+# websocket warm, which helps prevent the idle timeouts that started all this.
+if training_active and not st.session_state.trained:
+    time.sleep(POLL_SECS)
+    st.rerun()
