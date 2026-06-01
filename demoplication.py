@@ -62,7 +62,10 @@ if st.session_state.system is not None:
     # session_state or the status log.
     if not st.session_state.trained and os.path.isfile(MODEL_PATH):
         try:
-            st.session_state.system.predictor = joblib.load(MODEL_PATH)
+            loaded = joblib.load(MODEL_PATH)
+            if getattr(loaded, "model", None) is None:
+                raise ValueError("model file has no fitted estimator")
+            st.session_state.system.predictor = loaded
             st.session_state.system.trained   = True
             st.session_state.trained          = True
         except Exception:
@@ -78,6 +81,10 @@ GDRIVE_ANNOT_FOLDER_ID  = "1WZfE0gnPkvgIHfsvdY_7PUDQ-r05oGjZ"
 GDRIVE_PHYSIO_FOLDER_ID = "1jqz4YcJcCpwLAP6PAfeGzrwNxqomfqis"
 
 QUAD_EMOJI = {"Q1": "😄", "Q2": "😠", "Q3": "😢", "Q4": "😌"}
+
+# reported model performance on the CASE dataset
+R2_VALENCE = 0.119
+R2_AROUSAL = 0.187
 
 
 # ── training status helpers (file-based, thread-safe) ───────────────────────────
@@ -360,6 +367,9 @@ with st.sidebar:
                     with open(DB_PATH, "wb") as f:
                         f.write(music_db_file.getvalue())
                     st.session_state.system = pl.EmotionMusicSystem(DB_PATH)
+                    st.session_state.system.predictor, _ = _fit_predictor()
+                    st.session_state.system.trained = True
+                    st.session_state.trained = True
                     st.success("✓ Loaded — Demo Mode ready")
                 except Exception as e:
                     st.error(f"Failed to load music DB: {e}")
@@ -599,6 +609,9 @@ with tab_upload:
             with res_left:
                 st.subheader("Emotion Summary")
                 render_emotion_summary(result)
+                rcol1, rcol2 = st.columns(2)
+                rcol1.metric("Model R² · Valence", f"{R2_VALENCE:.3f}")
+                rcol2.metric("Model R² · Arousal", f"{R2_AROUSAL:.3f}")
                 st.divider()
                 fig = va_scatter(
                     result["current_emotion"]["valence"], result["current_emotion"]["arousal"],
