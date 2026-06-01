@@ -307,6 +307,13 @@ with st.sidebar:
                     st.success(f"✓ Downloaded {n_physio} physio, {n_annot} annot files")
 
             if st.session_state.dataset_ready and not st.session_state.trained:
+                # clear stale log from previous broken runs
+                if os.path.isfile(TRAIN_LOG):
+                    with open(TRAIN_LOG) as _f:
+                        _stale = _f.read().strip()
+                    if _stale.startswith("error:") or _stale == "":
+                        os.remove(TRAIN_LOG)
+
                 def _run_training():
                     # fully self-contained — no session_state, loads everything from disk
                     try:
