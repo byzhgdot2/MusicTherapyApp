@@ -674,3 +674,13 @@ with tab_demo:
                 st.pyplot(fig3, use_container_width=False)
             with dr2:
                 render_playlist(dr)
+
+
+# ── auto-poll while a background training run is active ─────────────────────────
+# Rendered last, after the whole page is drawn, so the UI stays interactive in
+# the gaps. Every couple seconds we re-read the progress file so the bar advances
+# and the 'done' state is picked up without a manual refresh. This also keeps the
+# websocket warm, which helps prevent the idle timeouts that started all this.
+if training_active and not st.session_state.trained:
+    time.sleep(POLL_SECS)
+    st.rerun()
