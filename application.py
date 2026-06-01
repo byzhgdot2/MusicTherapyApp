@@ -7,6 +7,7 @@ import os
 import tempfile
 import requests
 import joblib
+import threading
 
 # persistent dirs survive Streamlit reruns/reconnects
 PERSIST_DIR  = os.path.join(tempfile.gettempdir(), "wbdmr_cache")
@@ -296,20 +297,44 @@ with st.sidebar:
                     st.session_state.dataset_ready = True
                     st.success(f"✓ Downloaded {n_physio} physio, {n_annot} annot files")
 
-            if st.session_state.dataset_ready:
-                prog2 = st.progress(0, text="Training model…")
-                try:
-                    n = st.session_state.system.train_model(
-                        PHYSIO_DIR, ANNOT_DIR,
-                        progress_cb=lambda p: prog2.progress(p, text=f"Training… {int(p*100)}%")
-                    )
-                    joblib.dump(st.session_state.system.predictor, MODEL_PATH)
-                    prog2.empty()
+            if st.session_state.dataset_ready and not st.session_state.trained:
+                TRAIN_LOG = os.path.join(PERSIST_DIR, "train_status.txt")
+
+                def _run_training():
+                    try:
+                        with open(TRAIN_LOG, "w") as f:
+                            f.write("running")
+                        n = st.session_state.system.train_model(
+                            PHYSIO_DIR, ANNOT_DIR,
+                        )
+                        joblib.dump(st.session_state.system.predictor, MODEL_PATH)
+                        with open(TRAIN_LOG, "w") as f:
+                            f.write(f"done:{n}")
+                    except Exception as e:
+                        with open(TRAIN_LOG, "w") as f:
+                            f.write(f"error:{e}")
+
+                log_status = ""
+                if os.path.isfile(TRAIN_LOG):
+                    with open(TRAIN_LOG) as f:
+                        log_status = f.read().strip()
+
+                if log_status.startswith("done:"):
+                    n = int(log_status.split(":")[1])
+                    if os.path.isfile(MODEL_PATH):
+                        st.session_state.system.predictor = joblib.load(MODEL_PATH)
+                        st.session_state.system.trained   = True
                     st.session_state.trained = True
                     st.success(f"✓ Trained on {n} windows")
-                except Exception as e:
-                    prog2.empty()
-                    st.error(f"Training error: {e}")
+                elif log_status.startswith("error:"):
+                    st.error(f"Training error: {log_status[6:]}")
+                elif log_status == "running":
+                    st.info("Training in progress — refresh in a minute to check status.")
+                else:
+                    # kick off background thread
+                    t = threading.Thread(target=_run_training, daemon=True)
+                    t.start()
+                    st.info("Training started in background — refresh in ~1 min to check progress.")
 
     st.divider()
 
